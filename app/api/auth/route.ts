@@ -1,0 +1,3 @@
+import { createGuest, getAppUser } from "../../server-auth";
+export async function POST(request:Request){try{const body=await request.json().catch(()=>({})) as {name?:string};const session=await createGuest(body.name);return Response.json(session,{status:201,headers:{"set-cookie":`orbit_session=${encodeURIComponent(session.token)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`}})}catch(error){return Response.json({error:error instanceof Error?error.message:"Ошибка регистрации"},{status:500})}}
+export async function GET(request:Request){const user=await getAppUser(request);return user?Response.json({user}):Response.json({error:"Сессия недействительна"},{status:401})}
