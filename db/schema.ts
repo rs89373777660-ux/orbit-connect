@@ -1,4 +1,8 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users=sqliteTable("users",{id:text("id").primaryKey(),email:text("email").notNull(),name:text("name").notNull(),createdAt:integer("created_at").notNull()});
+export const chats=sqliteTable("chats",{id:text("id").primaryKey(),title:text("title").notNull(),kind:text("kind",{enum:["direct","group"]}).notNull(),createdBy:text("created_by").notNull(),createdAt:integer("created_at").notNull()});
+export const chatMembers=sqliteTable("chat_members",{chatId:text("chat_id").notNull(),userId:text("user_id").notNull(),role:text("role",{enum:["owner","admin","member"]}).notNull(),joinedAt:integer("joined_at").notNull()},t=>[primaryKey({columns:[t.chatId,t.userId]}),index("idx_chat_members_user").on(t.userId)]);
+export const messages=sqliteTable("messages",{id:text("id").primaryKey(),chatId:text("chat_id").notNull(),senderId:text("sender_id").notNull(),body:text("body"),kind:text("kind",{enum:["text","file","voice","system"]}).notNull(),fileKey:text("file_key"),fileName:text("file_name"),fileSize:integer("file_size"),replyTo:text("reply_to"),createdAt:integer("created_at").notNull()},t=>[index("idx_messages_chat_created").on(t.chatId,t.createdAt)]);
+export const reactions=sqliteTable("reactions",{messageId:text("message_id").notNull(),userId:text("user_id").notNull(),emoji:text("emoji").notNull(),createdAt:integer("created_at").notNull()},t=>[primaryKey({columns:[t.messageId,t.userId,t.emoji]}),index("idx_reactions_message").on(t.messageId)]);
+export const callSignals=sqliteTable("call_signals",{id:text("id").primaryKey(),chatId:text("chat_id").notNull(),senderId:text("sender_id").notNull(),recipientId:text("recipient_id"),type:text("type").notNull(),payload:text("payload").notNull(),createdAt:integer("created_at").notNull()},t=>[index("idx_call_signals_chat_created").on(t.chatId,t.createdAt)]);
