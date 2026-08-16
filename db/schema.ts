@@ -1,6 +1,34 @@
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const users=sqliteTable("users",{id:text("id").primaryKey(),email:text("email").notNull(),name:text("name").notNull(),phoneHash:text("phone_hash"),phoneLast4:text("phone_last4"),status:text("status"),avatarData:text("avatar_data"),createdAt:integer("created_at").notNull()},t=>[uniqueIndex("idx_users_phone_hash").on(t.phoneHash)]);
+export const users=sqliteTable("users",{
+ id:text("id").primaryKey(),
+ email:text("email").notNull(),
+ name:text("name").notNull(),
+ publicId:text("public_id"),
+ handle:text("handle"),
+ phone:text("phone"),
+ phoneHash:text("phone_hash"),
+ phoneLast4:text("phone_last4"),
+ phoneVerifiedAt:integer("phone_verified_at"),
+ birthYear:integer("birth_year"),
+ socialsJson:text("socials_json"),
+ status:text("status"),
+ avatarData:text("avatar_data"),
+ registrationCompleted:integer("registration_completed",{mode:"boolean"}).notNull().default(false),
+ syncContactsEnabled:integer("sync_contacts_enabled",{mode:"boolean"}).notNull().default(true),
+ privacyPhone:integer("privacy_phone",{mode:"boolean"}).notNull().default(false),
+ privacyEmail:integer("privacy_email",{mode:"boolean"}).notNull().default(false),
+ privacyStatus:integer("privacy_status",{mode:"boolean"}).notNull().default(true),
+ privacySocials:integer("privacy_socials",{mode:"boolean"}).notNull().default(true),
+ privacyPhoto:integer("privacy_photo",{mode:"boolean"}).notNull().default(true),
+ createdAt:integer("created_at").notNull()
+},t=>[
+ uniqueIndex("idx_users_phone_hash").on(t.phoneHash),
+ uniqueIndex("idx_users_public_id").on(t.publicId),
+ uniqueIndex("idx_users_handle").on(t.handle),
+ index("idx_users_name").on(t.name)
+]);
+export const phoneVerifications=sqliteTable("phone_verifications",{userId:text("user_id").primaryKey(),phone:text("phone").notNull(),phoneHash:text("phone_hash").notNull(),codeHash:text("code_hash").notNull(),expiresAt:integer("expires_at").notNull(),attempts:integer("attempts").notNull().default(0),createdAt:integer("created_at").notNull()});
 export const appSessions=sqliteTable("app_sessions",{tokenHash:text("token_hash").primaryKey(),userId:text("user_id").notNull(),createdAt:integer("created_at").notNull(),lastSeenAt:integer("last_seen_at").notNull()},t=>[index("idx_app_sessions_user").on(t.userId)]);
 export const contacts=sqliteTable("contacts",{ownerId:text("owner_id").notNull(),contactUserId:text("contact_user_id").notNull(),alias:text("alias"),createdAt:integer("created_at").notNull()},t=>[primaryKey({columns:[t.ownerId,t.contactUserId]}),index("idx_contacts_target").on(t.contactUserId)]);
 export const notifications=sqliteTable("notifications",{id:text("id").primaryKey(),userId:text("user_id").notNull(),actorId:text("actor_id"),kind:text("kind").notNull(),body:text("body").notNull(),readAt:integer("read_at"),createdAt:integer("created_at").notNull()},t=>[index("idx_notifications_user_created").on(t.userId,t.createdAt)]);

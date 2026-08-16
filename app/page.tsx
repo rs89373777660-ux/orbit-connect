@@ -1,5 +1,6 @@
 "use client";
 import { ChangeEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import MessengerApp from "./messenger-app";
 
 type Chat={id:string|number;name:string;initials:string;preview:string;time:string;unread?:number;online?:boolean;group?:boolean};
 type Message={id:string|number;from:"me"|"them";text?:string;sticker?:number;time:string;file?:{name:string;size:string;kind:string};reaction?:number;reply?:string};
@@ -27,7 +28,7 @@ function appFetch(input:RequestInfo|URL,init:RequestInit={}){
  return fetch(input,{...init,headers});
 }
 
-export default function Home(){
+function LegacyHome(){
  const [chatList,setChatList]=useState(initialChats);const [activeChat,setActiveChat]=useState(initialChats[0]);const [messages,setMessages]=useState(initialMessages);const [draft,setDraft]=useState("");
  const [section,setSection]=useState<"chats"|"contacts"|"calls"|"settings">("chats");const [folder,setFolder]=useState<"all"|"unread"|"groups">("all");const [search,setSearch]=useState("");
  const [conversationOpen,setConversationOpen]=useState(false);const [details,setDetails]=useState(false);const [call,setCall]=useState<null|"audio"|"video">(null);const [muted,setMuted]=useState(false);const [camera,setCamera]=useState(true);
@@ -85,3 +86,5 @@ export default function Home(){
   {toast&&<div className="toast">{toast}</div>}
  </main>
 }
+
+export default function Home(){return <MessengerApp/>}

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { appSessions, users } from "../db/schema";
+import { ensureProfileIdentity } from "./profile-utils";
 import { getChatGPTUser } from "./chatgpt-auth";
 
 export type AppUser={userId:string;email:string;displayName:string};
@@ -16,11 +17,13 @@ export async function getAppUser(request:Request):Promise<AppUser|null>{
  const [session]=await db.select().from(appSessions).where(eq(appSessions.tokenHash,tokenHash)).limit(1);if(!session)return null;
  const [user]=await db.select().from(users).where(eq(users.id,session.userId)).limit(1);if(!user)return null;
  await db.update(appSessions).set({lastSeenAt:Date.now()}).where(eq(appSessions.tokenHash,tokenHash));
+ await ensureProfileIdentity(user.id);
  return {userId:user.id,email:user.email,displayName:user.name};
 }
 
 export async function createGuest(name?:string){
  const token=`${crypto.randomUUID()}${crypto.randomUUID()}`;const tokenHash=await hashToken(token);const userId=crypto.randomUUID();const now=Date.now();const displayName=name?.trim().slice(0,50)||`Гость ${userId.slice(0,4).toUpperCase()}`;const db=getDb();
- await db.batch([db.insert(users).values({id:userId,email:`${userId}@guest.orbit`,name:displayName,createdAt:now}),db.insert(appSessions).values({tokenHash,userId,createdAt:now,lastSeenAt:now})]);
+ const publicId=`$${userId.replace(/-/g,"").slice(0,10)}`;
+ await db.batch([db.insert(users).values({id:userId,email:`${userId}@guest.orbit`,name:displayName,publicId,handle:publicId,createdAt:now}),db.insert(appSessions).values({tokenHash,userId,createdAt:now,lastSeenAt:now})]);
  return {token,user:{userId,email:`${userId}@guest.orbit`,displayName}};
 }
