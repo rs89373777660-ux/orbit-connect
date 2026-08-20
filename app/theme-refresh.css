@@ -1,0 +1,82 @@
+/* Complete theme application and high-contrast icon controls. */
+.orbit-v4{
+ --accent-ink:#07100b;
+ --accent-soft:color-mix(in srgb,var(--accent) 12%,transparent);
+ --accent-line:color-mix(in srgb,var(--accent) 38%,#253024);
+ --accent-glow:color-mix(in srgb,var(--accent) 36%,transparent);
+ background:radial-gradient(circle at 16% 8%,var(--accent-soft),transparent 28%),#070a07;
+}
+.orbit-v4 .orbit-list{background:linear-gradient(165deg,var(--accent-soft),transparent 22%),#0c100c}
+.orbit-v4 .orbit-list>header small,
+.orbit-v4 .compose-modal header small,
+.orbit-v4 .privacy-modal header small,
+.orbit-v4 .orbit-chat>header small,
+.orbit-v4 .profile-photo,
+.orbit-v4 .identity>span,
+.orbit-v4 .compose-modal>p,
+.orbit-v4 .profile-modal>small,
+.orbit-v4 .profile-modal>b,
+.orbit-v4 .editing-bar b{color:var(--accent)!important}
+.orbit-v4 .orbit-nav button.active{background:var(--accent)!important;color:var(--accent-ink)!important;box-shadow:0 8px 30px var(--accent-glow)}
+.orbit-v4 .nav-glyph{position:relative;width:35px;height:35px;display:grid;place-items:center;border:1px solid currentColor;border-radius:13px;font-size:23px;font-style:normal;line-height:1;box-shadow:inset 0 0 0 3px color-mix(in srgb,currentColor 8%,transparent)}
+.orbit-v4 .nav-glyph:after{content:"";position:absolute;right:-3px;top:-3px;width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+.orbit-v4 .orbit-nav button span{font-size:10px;font-weight:750}
+.orbit-v4 .compose,
+.orbit-v4 .send,
+.orbit-v4 .tool-icon,
+.orbit-v4 .settings-tools button,
+.orbit-v4 .primary-action,
+.orbit-v4 .write.solid{background:var(--accent)!important;color:var(--accent-ink)!important;box-shadow:0 7px 24px var(--accent-glow)}
+.orbit-v4 .settings-tools{gap:10px}
+.orbit-v4 .settings-tools button{width:48px;height:48px;border:1px solid color-mix(in srgb,var(--accent) 72%,#fff);border-radius:17px!important;display:grid;place-items:center;padding:0}
+.orbit-v4 .settings-tool-glyph{display:block;font-size:28px;font-weight:900;line-height:1;transform:translateY(-1px);color:var(--accent-ink)!important;text-shadow:0 1px 0 #fff5}
+.orbit-v4 .settings-tools button:first-child .settings-tool-glyph{font-size:31px}
+.orbit-v4 .setting-block{border-color:var(--accent-line);background:linear-gradient(135deg,var(--accent-soft),transparent 40%),#10150f}
+.orbit-v4 .setting-block h3,.orbit-v4 .section-label,.orbit-v4 .new-message b{color:var(--accent)!important}
+.orbit-v4 .new-message{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent)!important}
+.orbit-v4 .switch-row input:checked+i{background:var(--accent)!important;box-shadow:0 0 22px var(--accent-glow)}
+.orbit-v4 .switch-row input:checked+i:after{background:var(--accent-ink)!important}
+.orbit-v4 .theme-grid button{min-height:58px;border-color:#384235;background:#141b13;color:#f7f5ee!important;font-size:16px;font-weight:650}
+.orbit-v4 .theme-grid button.active{border:2px solid var(--accent)!important;background:var(--accent-soft);box-shadow:0 0 24px var(--accent-glow)}
+.orbit-v4 .theme-grid i{width:28px;height:28px;flex:0 0 28px}
+.orbit-v4 .write{border-color:var(--accent-line);color:var(--accent)!important}
+.orbit-v4 .orbit-avatar:not([style]){background:var(--accent);color:var(--accent-ink)}
+.orbit-v4 .msg.me{background:var(--accent)!important;color:var(--accent-ink)!important;border-color:color-mix(in srgb,var(--accent) 65%,#fff)}
+.orbit-v4 .chat-pin.active,.orbit-v4 .row-arrow{color:var(--accent)!important}
+.orbit-v4 .unread-count,.orbit-v4 .orbit-notification-badge,.orbit-v4 .orbit-toast{background:var(--accent)!important;color:var(--accent-ink)!important}
+.orbit-v4 .app-share-row{width:100%;min-height:76px;border:1px solid var(--accent)!important;border-radius:28px!important;background:linear-gradient(110deg,var(--accent),color-mix(in srgb,var(--accent) 72%,#fff));color:var(--accent-ink)!important;padding:13px 18px;display:flex;align-items:center;gap:14px;text-align:left;box-shadow:0 13px 34px var(--accent-glow);cursor:pointer}
+.orbit-v4 .app-share-row>span:last-child{display:flex;min-width:0;flex-direction:column;gap:4px}
+.orbit-v4 .app-share-row b{font-size:15px}
+.orbit-v4 .app-share-row small{font-size:9px;line-height:1.35;opacity:.74}
+.orbit-v4 .app-share-icon{width:44px;height:44px;flex:0 0 44px;border-radius:15px;display:grid;place-items:center;background:var(--accent-ink);color:var(--accent);font-size:25px;font-weight:900}
+.orbit-v4 .plain-row .row-arrow{font-size:26px}
+.orbit-v4 .orbit-chat>header button{color:var(--accent)!important;border:1px solid var(--accent-line);font-size:21px}
+.orbit-v4 .orbit-chat>footer>button:first-child{color:var(--accent)!important;font-size:27px}
+.orbit-v4 .attachment-menu,.orbit-v4 .ai-menu,.orbit-v4 .emoji-picker{border-color:var(--accent-line)}
+.orbit-v4 .emoji-picker nav button.active{background:var(--accent)!important;color:var(--accent-ink)!important}
+@media(max-width:800px){
+ .orbit-v4 .orbit-nav button{font-size:0;gap:3px}
+ .orbit-v4 .orbit-nav button.active{background:var(--accent-soft)!important;color:var(--accent)!important;box-shadow:none}
+ .orbit-v4 .nav-glyph{width:33px;height:33px;border-radius:12px;font-size:22px}
+ .orbit-v4 .orbit-nav button span{font-size:10px}
+ .orbit-v4 .settings-tools button{width:46px;height:46px}
+ .orbit-v4 .settings-tools{right:18px;top:20px}
+}
+.registration-card .country-select{width:100%;height:52px;border:1px solid #3a4434;border-radius:18px;background:#121812;color:#fff;padding:0 14px;font-size:16px;outline:0}
+.registration-card .country-select:focus{border-color:#cfff3c;box-shadow:0 0 0 3px #cfff3c1f}
+.registration-card .country-detected{display:block;margin:-8px 0 13px;color:#cfff3c;font-size:9px;letter-spacing:.05em}
+.registration-card .phone-country-field{height:52px;display:flex;align-items:center;border:1px solid #3a4434;border-radius:18px;background:#121812;overflow:hidden}
+.registration-card .phone-country-field:focus-within{border-color:#cfff3c;box-shadow:0 0 0 3px #cfff3c1f}
+.registration-card .phone-country-field>b{height:100%;display:flex;align-items:center;padding:0 15px;border-right:1px solid #3a4434;color:#cfff3c;font-size:16px;white-space:nowrap}
+.registration-card .phone-country-field>input{height:100%;min-width:0;flex:1;border:0!important;background:transparent;padding:0 13px;box-shadow:none!important}
+.orbit-v4 .avatar-editor{overscroll-behavior:contain}
+.orbit-v4 .avatar-crop{position:relative;width:min(360px,80vw);aspect-ratio:1/1;height:auto;border-radius:28px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;isolation:isolate}
+.orbit-v4 .avatar-crop:active{cursor:grabbing}
+.orbit-v4 .avatar-crop img{position:absolute;inset:0;width:100%;height:100%;max-width:none;object-fit:cover;object-position:center;transform-origin:center;pointer-events:none;will-change:transform;backface-visibility:hidden}
+.orbit-v4 .avatar-circle-guide{position:absolute;z-index:2;inset:7%;border:2px solid #fff;outline:999px solid #0004;border-radius:50%;pointer-events:none;box-shadow:0 0 0 1px #0008,0 0 24px var(--accent-glow)}
+.orbit-v4 .avatar-circle-guide:before,.orbit-v4 .avatar-circle-guide:after{content:"";position:absolute;background:#fff8}
+.orbit-v4 .avatar-circle-guide:before{left:50%;top:0;bottom:0;width:1px}
+.orbit-v4 .avatar-circle-guide:after{top:50%;left:0;right:0;height:1px}
+.orbit-v4 .avatar-gesture-hint{text-align:center;color:#a5ad9f;font-size:10px;line-height:1.5;margin:10px 0 6px}
+.orbit-v4 .avatar-gesture-hint b{color:var(--accent)}
+.orbit-v4 .avatar-reset{display:block;margin:0 auto 10px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent);padding:9px 15px;font-size:10px}
