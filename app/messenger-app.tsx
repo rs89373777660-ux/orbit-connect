@@ -11,6 +11,8 @@ type Profile={
 type Chat={id:string;name:string;kind:string;createdAt:number};
 type Message={id:string;senderId:string;body:string|null;kind:string;fileName?:string|null;fileSize?:number|null;createdAt:number};
 type PhoneEntry={name:string;phone:string};
+type AppNotification={id:string;kind:string;body:string;entityId?:string|null;readAt?:number|null;createdAt:number};
+type UpdateInfo={build:string;title:string;notes:string[];releasedAt:string;checkIntervalMs:number;apk:{version:string;url:string;sha256:string};nativeUpdate?:boolean};
 
 function appFetch(input:RequestInfo|URL,init:RequestInit={}){
  const headers=new Headers(init.headers),token=localStorage.getItem("orbit_session");
@@ -20,18 +22,28 @@ function appFetch(input:RequestInfo|URL,init:RequestInit={}){
 function initials(name:string){return name.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()||"OR"}
 function normalizePhone(value:string){const digits=value.replace(/\D/g,"");if(digits.length===10)return `7${digits}`;if(digits.length===11&&digits.startsWith("8"))return `7${digits.slice(1)}`;return digits.slice(-15)}
 async function phoneHash(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(normalizePhone(value)));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function compareVersions(left:string,right:string){const a=left.split(".").map(Number),b=right.split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const delta=(a[i]||0)-(b[i]||0);if(delta)return delta}return 0}
 
 export default function MessengerApp(){
- const [ready,setReady]=useState(false),[error,setError]=useState(""),[progress,setProgress]=useState("ORBIT CONNECT");
+ const [ready,setReady]=useState(false),[error,setError]=useState(""),[,setProgress]=useState(""),[intro,setIntro]=useState(true);
  const [profile,setProfile]=useState<Profile|null>(null),[section,setSection]=useState<"chats"|"contacts"|"settings">("chats");
  const [contacts,setContacts]=useState<Profile[]>([]),[searchResults,setSearchResults]=useState<Profile[]>([]);
  const [chats,setChats]=useState<Chat[]>([]),[activeChat,setActiveChat]=useState<Chat|null>(null),[messages,setMessages]=useState<Message[]>([]);
  const [draft,setDraft]=useState(""),[search,setSearch]=useState(""),[composeOpen,setComposeOpen]=useState(false),[profileOpen,setProfileOpen]=useState<Profile|null>(null),[mobileChatOpen,setMobileChatOpen]=useState(false);
- const [privacyOpen,setPrivacyOpen]=useState(false),[toast,setToast]=useState(""),[syncing,setSyncing]=useState(false),[aiWorking,setAiWorking]=useState(false);
- const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null);
+ const [privacyOpen,setPrivacyOpen]=useState(false),[notificationSettingsOpen,setNotificationSettingsOpen]=useState(false),[toast,setToast]=useState(""),[syncing,setSyncing]=useState(false),[aiWorking,setAiWorking]=useState(false);
+ const [notificationsEnabled,setNotificationsEnabled]=useState(true),[soundEnabled,setSoundEnabled]=useState(true),[updateInfo,setUpdateInfo]=useState<UpdateInfo|null>(null),[checkingUpdate,setCheckingUpdate]=useState(false);
+ const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>());
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
 
- useEffect(()=>{void boot()},[]);
+ useEffect(()=>{void boot();const timer=window.setTimeout(()=>setIntro(false),1800);return()=>window.clearTimeout(timer)},[]);
+ useEffect(()=>{
+  setNotificationsEnabled(localStorage.getItem("orbit_notifications")!=="off");
+  setSoundEnabled(localStorage.getItem("orbit_sound")!=="off");
+  const audio=new Audio("/orbit-plum.wav");audio.preload="auto";plumAudio.current=audio;
+  const unlock=()=>{audio.volume=.001;void audio.play().then(()=>{audio.pause();audio.currentTime=0;audio.volume=.85}).catch(()=>undefined)};
+  document.addEventListener("pointerdown",unlock,{once:true});
+  return()=>document.removeEventListener("pointerdown",unlock);
+ },[]);
  useEffect(()=>{
   const viewport=window.visualViewport;
   const resize=()=>document.documentElement.style.setProperty("--orbit-vh",`${viewport?.height||window.innerHeight}px`);
@@ -57,6 +69,15 @@ export default function MessengerApp(){
   const timer=window.setTimeout(()=>void searchPeople(search),300);
   return()=>window.clearTimeout(timer);
  },[search,composeOpen]);
+ useEffect(()=>{
+  if(!ready||!profile?.registered)return;
+  void checkNotifications();void checkUpdates(false);
+  const notificationsTimer=window.setInterval(()=>void checkNotifications(),10000);
+  const updateTimer=window.setInterval(()=>void checkUpdates(false),8*60*60*1000);
+  const visible=()=>{if(document.visibilityState!=="visible")return;void checkNotifications();const last=Number(localStorage.getItem("orbit_update_checked_at")||0);if(Date.now()-last>=8*60*60*1000)void checkUpdates(false)};
+  document.addEventListener("visibilitychange",visible);
+  return()=>{window.clearInterval(notificationsTimer);window.clearInterval(updateTimer);document.removeEventListener("visibilitychange",visible)};
+ },[ready,profile?.registered,notificationsEnabled,soundEnabled]);
 
  async function boot(){
   setProgress("ПОДКЛЮЧАЕМ…");
@@ -80,6 +101,61 @@ export default function MessengerApp(){
   const r=await appFetch("/api/people",{cache:"no-store"});if(!r.ok)return;
   const data=await r.json();setContacts(data.contacts||[]);if(data.profile)setProfile(data.profile);
  }
+ async function checkNotifications(){
+  if(!notificationsEnabled)return;
+  const r=await appFetch("/api/people",{cache:"no-store"});if(!r.ok)return;
+  const data=await r.json(),unread=(data.notifications||[]).filter((item:AppNotification)=>!item.readAt&&!seenNotifications.current.has(item.id)) as AppNotification[];
+  if(!unread.length)return;
+  unread.forEach(item=>seenNotifications.current.add(item.id));
+  const latest=unread[0],isMessage=latest.kind==="message"||latest.kind==="file";
+  notify(latest.body);
+  if(isMessage&&soundEnabled){const audio=plumAudio.current;if(audio){audio.currentTime=0;audio.volume=.85;void audio.play().catch(()=>undefined)}}
+  if(isMessage){
+   const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{showNotification:(value:{title:string;body:string})=>Promise<void>}}}}).Capacitor?.Plugins?.PhoneContacts;
+   if(native)await native.showNotification({title:"Orbit Connect",body:latest.body}).catch(()=>undefined);
+   else if("Notification" in window&&Notification.permission==="granted"&&document.hidden)new Notification("Orbit Connect",{body:latest.body,icon:"/orbit-connect-icon-192.png"});
+  }
+  await appFetch("/api/people",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"read-notifications"})});
+  if(latest.entityId)await loadChats();
+ }
+ async function checkUpdates(manual:boolean){
+  if(checkingUpdate)return;setCheckingUpdate(true);
+  try{
+   const current=localStorage.getItem("orbit_build")||"2026.08.16.1";
+   const r=await fetch(`/api/version?current=${encodeURIComponent(current)}&t=${Date.now()}`,{cache:"no-store"});
+   if(!r.ok)throw new Error("Проверка недоступна");
+   const data=await r.json() as UpdateInfo&{updateAvailable:boolean};
+   const capacitor=(window as typeof window&{Capacitor?:{isNativePlatform?:()=>boolean;getPlatform?:()=>string;Plugins?:{PhoneContacts?:{getAppInfo?:()=>Promise<{versionName:string}>}}}}).Capacitor;
+   const native=capacitor?.Plugins?.PhoneContacts;
+   const appInfo=native?.getAppInfo?await native.getAppInfo().catch(()=>null):null;
+   const isNative=Boolean(capacitor?.isNativePlatform?.()||capacitor?.getPlatform?.()==="android");
+   const installedVersion=appInfo?.versionName||(isNative?"1.1.0":null);
+   const nativeUpdate=Boolean(installedVersion&&compareVersions(installedVersion,data.apk.version)<0);
+   localStorage.setItem("orbit_update_checked_at",String(Date.now()));
+   if(data.updateAvailable||nativeUpdate)setUpdateInfo({...data,nativeUpdate});
+   else if(manual)notify("Установлена последняя версия");
+  }catch{if(manual)notify("Не удалось проверить обновления")}
+  finally{setCheckingUpdate(false)}
+ }
+ async function applyUpdate(){
+  if(!updateInfo)return;
+  localStorage.setItem("orbit_build",updateInfo.build);
+  localStorage.setItem("orbit_update_checked_at",String(Date.now()));
+  if(updateInfo.nativeUpdate){
+   const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{installUpdate?:(value:{url:string})=>Promise<unknown>}}}}).Capacitor?.Plugins?.PhoneContacts;
+   const apkUrl=new URL(updateInfo.apk.url,location.origin).href;
+   if(native?.installUpdate){try{await native.installUpdate({url:apkUrl});return}catch{location.href=apkUrl;return}}
+   location.href=apkUrl;return;
+  }
+  if("serviceWorker" in navigator){const registrations=await navigator.serviceWorker.getRegistrations();await Promise.all(registrations.map(item=>item.update().catch(()=>undefined)));registrations.forEach(item=>item.waiting?.postMessage("SKIP_WAITING"))}
+  if("caches" in window){const keys=await caches.keys();await Promise.all(keys.map(key=>caches.delete(key)))}
+  location.reload();
+ }
+ async function setNotificationPreference(enabled:boolean){
+  setNotificationsEnabled(enabled);localStorage.setItem("orbit_notifications",enabled?"on":"off");
+  if(enabled&&"Notification" in window&&Notification.permission==="default")await Notification.requestPermission();
+ }
+ function setSoundPreference(enabled:boolean){setSoundEnabled(enabled);localStorage.setItem("orbit_sound",enabled?"on":"off");if(enabled){const audio=plumAudio.current;if(audio){audio.currentTime=0;void audio.play().catch(()=>undefined)}}}
  async function searchPeople(value:string){
   const r=await appFetch(`/api/people?q=${encodeURIComponent(value)}`,{cache:"no-store"});
   if(r.ok)setSearchResults((await r.json()).results||[]);
@@ -110,7 +186,7 @@ export default function MessengerApp(){
  async function send(){
   const text=draft.trim();if(!text||!activeChat)return;setProgress("ОТПРАВЛЯЕМ…");
   try{
-   const r=await appFetch("/api/sync",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"send",chatId:activeChat.id,body:text})});
+   const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId:activeChat.id,body:text})});
    if(!r.ok){notify("Сообщение не отправлено");return}setDraft("");await loadMessages(activeChat.id);
   }finally{setProgress("")}
  }
@@ -166,7 +242,7 @@ export default function MessengerApp(){
  }
 
  if(error)return <div className="orbit-auth"><img src="/orbit-connect-icon-192.png" alt="Orbit"/><p>ORBIT / CONNECT</p><h1>Нет соединения</h1><span>{error}</span><button onClick={()=>location.reload()}>Повторить</button></div>;
- if(!ready||progress&&!profile)return <Progress text={progress||"ORBIT CONNECT"}/>;
+ if(!ready||intro)return <EntryIntro/>;
  if(profile&&!profile.registered)return <Registration profile={profile} onComplete={value=>{setProfile(value);void loadAll()}} notify={notify}/>;
 
  return <main className="orbit-v4">
@@ -176,6 +252,7 @@ export default function MessengerApp(){
    {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><button key={chat.id} className={activeChat?.id===chat.id?"person-row selected":"person-row"} onClick={()=>{setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name}/><span><b>{chat.name}</b><small>{chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>)}</div>}
    {section==="contacts"&&<div className="list-scroll"><div className="section-label">МОИ КОНТАКТЫ · {contacts.length}</div>{contacts.length===0&&<Empty text="Контактов пока нет. Нажмите «Создать сообщение» и найдите человека."/ >}{contacts.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl}/><span><b>{person.name}</b><small>{person.handle} {person.online?"· онлайн":""}</small></span></button><button className="write" onClick={()=>void openChat(person)}>Написать</button></div>)}</div>}
    {section==="settings"&&profile&&<Settings profile={profile} setProfile={setProfile} saveProfile={saveProfile} toggleSync={toggleSync} syncing={syncing} syncNow={()=>syncPhonebook(false)} avatarInput={avatarInput} uploadAvatar={uploadAvatar} openPrivacy={()=>setPrivacyOpen(true)}/>}
+   {section==="settings"&&<div className="settings-tools"><button title="Проверить обновления" disabled={checkingUpdate} onClick={()=>void checkUpdates(true)}>↻</button><button title="Настройки уведомлений" onClick={()=>setNotificationSettingsOpen(true)}>♬</button></div>}
   </section>
   <section className={mobileChatOpen?"orbit-chat mobile-open":"orbit-chat"}>
    {activeChat?<><header><button className="mobile-chat-back" onClick={()=>setMobileChatOpen(false)}>‹</button><Avatar name={activeChat.name}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="group"?"группа":"личный чат"}</small></div><button onClick={()=>notify("Аудиозвонок запускается")}>☎</button><button onClick={()=>notify("Видеозвонок запускается")}>▣</button></header><div className="message-scroll">{messages.map(message=><div key={message.id} className={message.senderId===profile?.id?"msg me":"msg"}>{message.kind==="file"?<a href={`/api/files?id=${encodeURIComponent(message.id)}`}><b>{message.fileName||"Файл"}</b><span>{message.fileSize?Math.ceil(message.fileSize/1024)+" КБ":""}</span></a>:<p>{message.body}</p>}<time>{new Date(message.createdAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</time></div>)}</div><div className="ai-row"><button disabled={aiWorking} onClick={()=>void ai("generate")}>✦ Написать</button><button disabled={!draft||aiWorking} onClick={()=>void ai("correct")}>✓ Исправить</button><button disabled={!draft||aiWorking} onClick={()=>void ai("emoji")}>☺ Эмодзи</button></div><footer><button onClick={()=>fileInput.current?.click()}>＋</button><input ref={fileInput} type="file" hidden onChange={attach}/><textarea rows={1} value={draft} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void send()}}} placeholder="Сообщение"/><button className="send" onClick={()=>void send()}>↑</button></footer></>:<Empty text="Выберите чат или создайте новое сообщение"/>}
@@ -183,14 +260,15 @@ export default function MessengerApp(){
   {composeOpen&&<Compose contacts={contacts} results={searchResults} search={search} setSearch={setSearch} close={()=>setComposeOpen(false)} addContact={addContact} openChat={openChat} openProfile={openProfile}/>}
   {profileOpen&&<ProfileModal profile={profileOpen} close={()=>setProfileOpen(null)} addContact={addContact} openChat={openChat}/>}
   {privacyOpen&&profile&&<PrivacyModal profile={profile} close={()=>setPrivacyOpen(false)} save={async privacy=>{const next={...profile,privacy};setProfile(next);if(await saveProfile(next))setPrivacyOpen(false)}}/>}
-  {progress&&<Progress text={progress}/>}
+  {updateInfo&&<UpdateModal info={updateInfo} close={()=>setUpdateInfo(null)} apply={()=>void applyUpdate()}/>}
+  {notificationSettingsOpen&&<NotificationSettings enabled={notificationsEnabled} sound={soundEnabled} close={()=>setNotificationSettingsOpen(false)} setEnabled={value=>void setNotificationPreference(value)} setSound={setSoundPreference}/>}
   {toast&&<div className="orbit-toast">{toast}</div>}
  </main>
 }
 
 function Avatar({name,url}:{name:string;url?:string|null}){return <span className="orbit-avatar" style={url?{backgroundImage:`url(${url})`}:undefined}>{url?"":initials(name)}</span>}
 function Empty({text}:{text:string}){return <div className="orbit-empty"><img src="/orbit-connect-logo-v3.png" alt=""/><p>{text}</p></div>}
-function Progress({text}:{text:string}){return <div className="progress-screen"><div className="progress-orbit"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i/><i/><i/></div><b>{text}</b></div>}
+function EntryIntro(){return <div className="entry-intro"><div className="entry-halo"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i/><i/></div><div className="entry-word"><b>ORBIT</b><span>CONNECT</span></div><small>ТВОЙ КРУГ СТАНОВИТСЯ БЛИЖЕ</small></div>}
 
 function Registration({profile,onComplete,notify}:{profile:Profile;onComplete:(profile:Profile)=>void;notify:(text:string)=>void}){
  const [step,setStep]=useState<"phone"|"code"|"profile">("phone"),[phone,setPhone]=useState(""),[code,setCode]=useState(""),[demoCode,setDemoCode]=useState("");
@@ -202,7 +280,7 @@ function Registration({profile,onComplete,notify}:{profile:Profile;onComplete:(p
 }
 
 function Settings({profile,setProfile,saveProfile,toggleSync,syncing,syncNow,avatarInput,uploadAvatar,openPrivacy}:{profile:Profile;setProfile:(value:Profile)=>void;saveProfile:(value:Profile)=>Promise<boolean>;toggleSync:(value:boolean)=>Promise<void>;syncing:boolean;syncNow:()=>void;avatarInput:React.RefObject<HTMLInputElement|null>;uploadAvatar:(event:ChangeEvent<HTMLInputElement>)=>void;openPrivacy:()=>void}){
- const socials=profile.socials||{};return <div className="settings-scroll"><button className="profile-photo" onClick={()=>avatarInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl}/><b>Сменить фотографию</b></button><input ref={avatarInput} type="file" accept="image/*" hidden onChange={uploadAvatar}/><div className="identity"><b>{profile.name}</b><span>{profile.handle}</span><small>Неизменяемый ID: {profile.publicId}</small></div><div className="setting-block"><h3>Профиль</h3><label>ФИО<input value={profile.name} onChange={event=>setProfile({...profile,name:event.target.value})}/></label><label>Никнейм<input value={profile.handle} onChange={event=>setProfile({...profile,handle:event.target.value.startsWith("$")?event.target.value:`$${event.target.value}`})}/></label><label>Email<input type="email" value={profile.email||""} onChange={event=>setProfile({...profile,email:event.target.value})}/></label><label>Статус<textarea rows={3} maxLength={120} value={profile.status||""} onChange={event=>setProfile({...profile,status:event.target.value})} placeholder="Расскажите, чем вы заняты"/></label><label>Год рождения<input inputMode="numeric" value={profile.birthYear||""} onChange={event=>setProfile({...profile,birthYear:Number(event.target.value)||null})}/></label><label>Telegram<input value={socials.telegram||""} onChange={event=>setProfile({...profile,socials:{...socials,telegram:event.target.value}})}/></label><label>ВКонтакте<input value={socials.vk||""} onChange={event=>setProfile({...profile,socials:{...socials,vk:event.target.value}})}/></label><label>Сайт<input value={socials.website||""} onChange={event=>setProfile({...profile,socials:{...socials,website:event.target.value}})}/></label><button className="primary-action" onClick={()=>void saveProfile(profile)}>Сохранить профиль</button></div><div className="setting-block"><h3>Контакты</h3><label className="switch-row"><span><b>Постоянная синхронизация</b><small>При открытии приложения и каждые 2 минуты</small></span><input type="checkbox" role="switch" checked={Boolean(profile.syncContactsEnabled)} onChange={event=>void toggleSync(event.target.checked)}/><i/></label><button className="plain-row" disabled={syncing} onClick={syncNow}><span>{syncing?"Синхронизация…":"Синхронизировать сейчас"}</span><b>↻</b></button></div><div className="setting-block"><button className="plain-row" onClick={openPrivacy}><span><b>Конфиденциальность</b><small>Кто видит данные профиля</small></span><b>›</b></button></div><a className="download-row" href="/orbit-connect-v4.apk" download>Скачать APK для Android ↗</a></div>
+ const socials=profile.socials||{};return <div className="settings-scroll"><button className="profile-photo" onClick={()=>avatarInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl}/><b>Сменить фотографию</b></button><input ref={avatarInput} type="file" accept="image/*" hidden onChange={uploadAvatar}/><div className="identity"><b>{profile.name}</b><span>{profile.handle}</span><small>Неизменяемый ID: {profile.publicId}</small></div><div className="setting-block"><h3>Профиль</h3><label>ФИО<input value={profile.name} onChange={event=>setProfile({...profile,name:event.target.value})}/></label><label>Никнейм<input value={profile.handle} onChange={event=>setProfile({...profile,handle:event.target.value.startsWith("$")?event.target.value:`$${event.target.value}`})}/></label><label>Email<input type="email" value={profile.email||""} onChange={event=>setProfile({...profile,email:event.target.value})}/></label><label>Статус<textarea rows={3} maxLength={120} value={profile.status||""} onChange={event=>setProfile({...profile,status:event.target.value})} placeholder="Расскажите, чем вы заняты"/></label><label>Год рождения<input inputMode="numeric" value={profile.birthYear||""} onChange={event=>setProfile({...profile,birthYear:Number(event.target.value)||null})}/></label><label>Telegram<input value={socials.telegram||""} onChange={event=>setProfile({...profile,socials:{...socials,telegram:event.target.value}})}/></label><label>ВКонтакте<input value={socials.vk||""} onChange={event=>setProfile({...profile,socials:{...socials,vk:event.target.value}})}/></label><label>Сайт<input value={socials.website||""} onChange={event=>setProfile({...profile,socials:{...socials,website:event.target.value}})}/></label><button className="primary-action" onClick={()=>void saveProfile(profile)}>Сохранить профиль</button></div><div className="setting-block"><h3>Контакты</h3><label className="switch-row"><span><b>Постоянная синхронизация</b><small>При открытии приложения и каждые 2 минуты</small></span><input type="checkbox" role="switch" checked={Boolean(profile.syncContactsEnabled)} onChange={event=>void toggleSync(event.target.checked)}/><i/></label><button className="plain-row" disabled={syncing} onClick={syncNow}><span>{syncing?"Синхронизация…":"Синхронизировать сейчас"}</span><b>↻</b></button></div><div className="setting-block"><button className="plain-row" onClick={openPrivacy}><span><b>Конфиденциальность</b><small>Кто видит данные профиля</small></span><b>›</b></button></div><a className="download-row" href="/orbit-connect-v5.apk" download>Скачать APK 1.2.0 для Android ↗</a></div>
 }
 
 function Compose({contacts,results,search,setSearch,close,addContact,openChat,openProfile}:{contacts:Profile[];results:Profile[];search:string;setSearch:(value:string)=>void;close:()=>void;addContact:(person:Profile)=>Promise<void>;openChat:(person:Profile)=>Promise<void>;openProfile:(person:Profile)=>Promise<void>}){
@@ -217,4 +295,12 @@ function PrivacyModal({profile,close,save}:{profile:Profile;close:()=>void;save:
  const [value,setValue]=useState<Privacy>(profile.privacy||{phone:false,email:false,status:true,socials:true,photo:true});
  const items:[keyof Privacy,string,string][]=[["phone","Номер телефона","Показывать подтверждённый номер"],["email","Email","Показывать адрес электронной почты"],["status","Статус","Показывать текст статуса"],["socials","Социальные сети","Показывать Telegram, VK и сайт"],["photo","Фотография","Показывать аватар другим пользователям"]];
  return <div className="modal-back"><div className="privacy-modal"><header><div><small>НАСТРОЙКИ</small><h2>Конфиденциальность</h2></div><button onClick={close}>×</button></header>{items.map(([key,title,description])=><label className="switch-row" key={key}><span><b>{title}</b><small>{description}</small></span><input type="checkbox" role="switch" checked={value[key]} onChange={event=>setValue({...value,[key]:event.target.checked})}/><i/></label>)}<button className="primary-action" onClick={()=>void save(value)}>Сохранить</button></div></div>
+}
+
+function UpdateModal({info,close,apply}:{info:UpdateInfo;close:()=>void;apply:()=>void}){
+ return <div className="modal-back"><div className="update-modal"><button className="modal-close" onClick={close}>×</button><div className="update-logo"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i>↻</i></div><small>ДОСТУПНО ОБНОВЛЕНИЕ</small><h2>{info.title}</h2><p>Новая версия уже готова. Обновление займёт несколько секунд и не удалит ваши сообщения.</p><ul>{info.notes.map(note=><li key={note}>{note}</li>)}</ul><button className="primary-action" onClick={apply}>Обновить внутри приложения →</button><button className="update-later" onClick={close}>Напомнить позже</button></div></div>
+}
+
+function NotificationSettings({enabled,sound,close,setEnabled,setSound}:{enabled:boolean;sound:boolean;close:()=>void;setEnabled:(value:boolean)=>void;setSound:(value:boolean)=>void}){
+ return <div className="modal-back"><div className="privacy-modal"><header><div><small>СООБЩЕНИЯ</small><h2>Уведомления</h2></div><button onClick={close}>×</button></header><label className="switch-row"><span><b>Уведомления о сообщениях</b><small>Показывать имя отправителя и текст</small></span><input type="checkbox" role="switch" checked={enabled} onChange={event=>setEnabled(event.target.checked)}/><i/></label><label className="switch-row"><span><b>Фирменный звук «плюм»</b><small>Короткий мягкий сигнал Orbit</small></span><input type="checkbox" role="switch" checked={sound} onChange={event=>setSound(event.target.checked)}/><i/></label><button className="plum-preview" onClick={()=>setSound(true)}>▶ Прослушать «плюм»</button><button className="primary-action" onClick={close}>Готово</button></div></div>
 }

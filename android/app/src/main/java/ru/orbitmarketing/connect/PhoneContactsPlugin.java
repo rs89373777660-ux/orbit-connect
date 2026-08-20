@@ -1,11 +1,15 @@
 package ru.orbitmarketing.connect;
 
 import android.Manifest;
+import android.content.Intent;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.media.AudioAttributes;
+import android.net.Uri;
 import android.os.Build;
 import android.database.Cursor;
 import android.provider.ContactsContract;
+import androidx.core.content.FileProvider;
 import androidx.core.app.NotificationCompat;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -16,12 +20,76 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 @CapacitorPlugin(name = "PhoneContacts", permissions = {
     @Permission(alias = "contacts", strings = {Manifest.permission.READ_CONTACTS}),
     @Permission(alias = "notifications", strings = {Manifest.permission.POST_NOTIFICATIONS})
 })
 public class PhoneContactsPlugin extends Plugin {
+    @PluginMethod
+    public void getAppInfo(PluginCall call) {
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            JSObject result = new JSObject();
+            result.put("versionName", info.versionName);
+            result.put("versionCode", Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Не удалось определить версию приложения", error);
+        }
+    }
+
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        String source = call.getString("url", "");
+        if (!source.startsWith("https://tvoy-krug-messenger.rs89373777660.chatgpt.site/")) {
+            call.reject("Недопустимый адрес обновления");
+            return;
+        }
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(source).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(60000);
+                connection.setInstanceFollowRedirects(true);
+                if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new Exception("HTTP " + connection.getResponseCode());
+                int length = connection.getContentLength();
+                if (length > 150 * 1024 * 1024) throw new Exception("Файл слишком большой");
+                File apk = new File(getContext().getCacheDir(), "orbit-connect-update.apk");
+                int total = 0;
+                try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(apk)) {
+                    byte[] buffer = new byte[16 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        total += read;
+                        if (total > 150 * 1024 * 1024) throw new Exception("Файл слишком большой");
+                        output.write(buffer, 0, read);
+                    }
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().runOnUiThread(() -> {
+                    getContext().startActivity(intent);
+                    JSObject result = new JSObject();
+                    result.put("downloaded", true);
+                    call.resolve(result);
+                });
+            } catch (Exception error) {
+                call.reject("Не удалось скачать обновление", error);
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }).start();
+    }
+
     @PluginMethod
     public void getContacts(PluginCall call) {
         if (getPermissionState("contacts") != PermissionState.GRANTED) {
@@ -79,12 +147,17 @@ public class PhoneContactsPlugin extends Plugin {
     }
 
     private void displayNotification(PluginCall call) {
-        String channelId = "orbit_contacts";
+        String channelId = "orbit_messages_plum_v1";
         NotificationManager manager = getContext().getSystemService(NotificationManager.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(new NotificationChannel(channelId, "Orbit Connect", NotificationManager.IMPORTANCE_DEFAULT));
+        Uri sound = Uri.parse("android.resource://" + getContext().getPackageName() + "/" + R.raw.orbit_plum);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(channelId, "Сообщения Orbit Connect", NotificationManager.IMPORTANCE_HIGH);
+            channel.setSound(sound, new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            manager.createNotificationChannel(channel);
+        }
         String title = call.getString("title", "Orbit Connect");
         String body = call.getString("body", "Новое событие");
-        manager.notify((int) (System.currentTimeMillis() % Integer.MAX_VALUE), new NotificationCompat.Builder(getContext(), channelId).setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(body).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_DEFAULT).build());
+        manager.notify((int) (System.currentTimeMillis() % Integer.MAX_VALUE), new NotificationCompat.Builder(getContext(), channelId).setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(body).setSound(sound).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).build());
         call.resolve();
     }
 }
