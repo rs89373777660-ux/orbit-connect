@@ -49,9 +49,21 @@ export async function POST(request:Request){
   if(p.action==="sync-phonebook"){
    const hashes=[...new Set((p.phoneHashes||[]).filter(value=>/^[a-f0-9]{64}$/.test(value)))].slice(0,5000);
    if(!hashes.length)return Response.json({matches:[]});
-   const rows=await db.select().from(users).where(and(inArray(users.phoneHash,hashes),eq(users.registrationCompleted,true)));
-   const existing=await db.select().from(contacts).where(eq(contacts.ownerId,me.userId)),saved=new Set(existing.map(x=>x.contactUserId)),active=await online(rows.map(x=>x.id));
-   return Response.json({matches:rows.filter(x=>x.id!==me.userId).map(x=>({...publicProfile(x),phoneHash:x.phoneHash,isContact:saved.has(x.id),online:active.has(x.id)}))});
+   // D1/SQLite limits the number of bound variables. Large phone books must be
+   // matched in small batches instead of one enormous IN(...) expression.
+   const rows:typeof users.$inferSelect[]=[];
+   for(let offset=0;offset<hashes.length;offset+=75){
+    rows.push(...await db.select().from(users).where(and(inArray(users.phoneHash,hashes.slice(offset,offset+75)),eq(users.registrationCompleted,true))));
+   }
+   const existing=await db.select().from(contacts).where(eq(contacts.ownerId,me.userId)),saved=new Set(existing.map(x=>x.contactUserId));
+   const matched=[...new Map(rows.filter(x=>x.id!==me.userId).map(x=>[x.id,x])).values()],now=Date.now();
+   // Synchronization means that registered phone-book users become contacts on
+   // the server in one pass; the client no longer creates a request storm.
+   for(let offset=0;offset<matched.length;offset+=50){
+    await db.batch(matched.slice(offset,offset+50).map(person=>db.insert(contacts).values({ownerId:me.userId,contactUserId:person.id,createdAt:now}).onConflictDoNothing()));
+   }
+   const active=await online(matched.map(x=>x.id));
+   return Response.json({matches:matched.map(x=>({...publicProfile(x),phoneHash:x.phoneHash,isContact:true,online:active.has(x.id)})),added:matched.filter(x=>!saved.has(x.id)).length});
   }
   if(p.action==="add-contact"){
    const target=p.targetUserId||"";if(!target||target===me.userId)return Response.json({error:"Некорректный контакт"},{status:400});

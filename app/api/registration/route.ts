@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { phoneVerifications, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 import { ensureProfileIdentity, hashPhone, normalizeHandle, normalizePhone, parseSocials, publicProfile, sha256 } from "../../profile-utils";
+import { hashPassword } from "../../server-auth";
 
 async function current(request:Request){
  const auth=await getAppUser(request);
@@ -22,7 +23,7 @@ export async function POST(request:Request){
   if(!user)return Response.json({error:"Требуется вход"},{status:401});
   const body=await request.json() as {
    action?:string;phone?:string;code?:string;name?:string;email?:string;
-   birthYear?:number|null;handle?:string;socials?:Record<string,string>
+   birthYear?:number|null;handle?:string;socials?:Record<string,string>;password?:string
   };
   const db=getDb();
 
@@ -73,11 +74,13 @@ export async function POST(request:Request){
    if(name.length<3)return Response.json({error:"Укажите ФИО"},{status:400});
    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return Response.json({error:"Укажите корректный email"},{status:400});
    if(!handle)return Response.json({error:"Никнейм: минимум 3 символа после $"},{status:400});
+   const password=body.password||"";
+   if(password.length<6||!/[\p{L}]/u.test(password)||!/[0-9]/.test(password))return Response.json({error:"Пароль: минимум 6 знаков, хотя бы одна буква и одна цифра"},{status:400});
    if(year&&(year<1900||year>new Date().getFullYear()-10))return Response.json({error:"Проверьте год рождения"},{status:400});
    const [taken]=await db.select({id:users.id}).from(users).where(and(eq(users.handle,handle),ne(users.id,user.id))).limit(1);
    if(taken)return Response.json({error:"Такой никнейм уже занят"},{status:409});
    const socials=Object.fromEntries(Object.entries(body.socials||{}).map(([key,value])=>[key.slice(0,30),String(value).trim().slice(0,180)]).filter(([,value])=>value).slice(0,8));
-   await db.update(users).set({name,email,handle,birthYear:year,socialsJson:JSON.stringify(socials),registrationCompleted:true}).where(eq(users.id,user.id));
+   await db.update(users).set({name,email,handle,birthYear:year,socialsJson:JSON.stringify(socials),passwordHash:await hashPassword(password),registrationCompleted:true}).where(eq(users.id,user.id));
    const [updated]=await db.select().from(users).where(eq(users.id,user.id)).limit(1);
    return Response.json({ok:true,profile:publicProfile(updated,true)});
   }

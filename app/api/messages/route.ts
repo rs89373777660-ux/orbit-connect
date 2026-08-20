@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMembers, messageHidden, messageReceipts, messages, notifications } from "../../../db/schema";
+import { chatMembers, chats, messageHidden, messageReceipts, messages, notifications } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 
 async function membership(chatId:string,userId:string){
@@ -11,7 +11,7 @@ export async function POST(request:Request){
  try{
   const user=await getAppUser(request);
   if(!user)return Response.json({error:"Требуется вход"},{status:401});
-  const body=await request.json() as {action?:string;chatId?:string;targetChatId?:string;messageId?:string;body?:string;replyTo?:string;scope?:"me"|"all"};
+  const body=await request.json() as {action?:string;chatId?:string;targetChatId?:string;messageId?:string;body?:string;replyTo?:string;scope?:"me"|"all";kind?:"text"|"sticker"};
   const action=body.action||"send",db=getDb();
 
   if(action==="edit"){
@@ -45,13 +45,15 @@ export async function POST(request:Request){
    chatId=body.targetChatId;
   }
   if(!chatId||!await membership(chatId,user.userId))return Response.json({error:"Нет доступа к чату"},{status:403});
+  const [room]=await db.select().from(chats).where(eq(chats.id,chatId)).limit(1);
+  if(room?.kind==="channel"&&room.createdBy!==user.userId)return Response.json({error:"Публиковать новости может только владелец канала"},{status:403});
 
   const text=action==="forward"?(source?.body||""):body.body?.trim().slice(0,10000)||"";
   if(action!=="forward"&&!text)return Response.json({error:"Пустое сообщение"},{status:400});
   const now=Date.now(),message={
    id:crypto.randomUUID(),chatId,senderId:user.userId,body:text||null,
-   kind:(source?.kind||"text") as "text"|"file"|"voice"|"system",
-   fileKey:source?.fileKey||null,fileName:source?.fileName||null,fileSize:source?.fileSize||null,
+   kind:(source?.kind||(body.kind==="sticker"&&/^\/emoji\/orbit-[1-9]\.webp$/.test(text)?"sticker":"text")) as "text"|"file"|"photo"|"sticker"|"voice"|"system",
+   fileKey:source?.fileKey||null,fileName:source?.fileName||null,fileSize:source?.fileSize||null,fileMime:source?.fileMime||null,
    replyTo:action==="forward"?null:(body.replyTo||null),forwardedFromId:source?.id||null,createdAt:now
   };
   const members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,chatId));

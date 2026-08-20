@@ -6,6 +6,10 @@ import { getChatGPTUser } from "./chatgpt-auth";
 
 export type AppUser={userId:string;email:string;displayName:string};
 async function hashToken(token:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function bytesHex(bytes:Uint8Array){return [...bytes].map(value=>value.toString(16).padStart(2,"0")).join("")}
+export async function hashPassword(password:string){const salt=crypto.getRandomValues(new Uint8Array(16)),key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]),bits=await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations:120000},key,256);return `$pbkdf2$120000$${bytesHex(salt)}$${bytesHex(new Uint8Array(bits))}`}
+export async function verifyPassword(password:string,stored:string|null){const parts=(stored||"").split("$");if(parts.length!==5||parts[1]!=="pbkdf2")return false;const iterations=Number(parts[2]),salt=Uint8Array.from(parts[3].match(/.{2}/g)||[],value=>parseInt(value,16)),key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]),bits=await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations},key,256),actual=bytesHex(new Uint8Array(bits));if(actual.length!==parts[4].length)return false;let diff=0;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^parts[4].charCodeAt(i);return diff===0}
+export async function createSessionForUser(userId:string){const token=`${crypto.randomUUID()}${crypto.randomUUID()}`,tokenHash=await hashToken(token),now=Date.now();await getDb().insert(appSessions).values({tokenHash,userId,createdAt:now,lastSeenAt:now});return token}
 
 export async function getAppUser(request:Request):Promise<AppUser|null>{
  const chatgpt=await getChatGPTUser();

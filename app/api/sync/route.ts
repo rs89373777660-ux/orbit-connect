@@ -16,9 +16,21 @@ async function identity(request:Request){
    db.insert(messages).values({id:crypto.randomUUID(),chatId:id,senderId:user.userId,body:"Это ваш личный чат. Здесь можно хранить сообщения и файлы.",kind:"system",createdAt:now})
   ]);
  }
+ await ensureCommunity(user.userId);
  return user;
 }
 async function member(chatId:string,userId:string){return (await getDb().select().from(chatMembers).where(and(eq(chatMembers.chatId,chatId),eq(chatMembers.userId,userId))).limit(1)).length>0}
+
+const COMMUNITY_ID="orbit-connect-community";
+const RELEASE_ID="orbit-release-2026-08-20-4";
+async function ensureCommunity(userId:string){
+ const db=getDb(),now=Date.now();
+ const [registered]=await db.select({id:users.id}).from(users).where(eq(users.registrationCompleted,true)).orderBy(asc(users.createdAt)).limit(1);
+ if(!registered)return;
+ await db.insert(chats).values({id:COMMUNITY_ID,title:"Orbit Connect · Новости",kind:"channel",createdBy:registered.id,createdAt:now}).onConflictDoNothing();
+ await db.insert(chatMembers).values({chatId:COMMUNITY_ID,userId,role:userId===registered.id?"owner":"member",joinedAt:now}).onConflictDoNothing();
+ await db.insert(messages).values({id:RELEASE_ID,chatId:COMMUNITY_ID,senderId:registered.id,kind:"system",body:"Обновление Orbit Connect: исправлена синхронизация контактов и отображение длинных файлов, добавлены фото и файлы с предпросмотром, медиагалерея, ответы жестом, компактные ИИ-инструменты, эмодзи, стикеры и цветовые темы.",createdAt:now}).onConflictDoNothing();
+}
 
 export async function GET(request:Request){
  try{
@@ -39,12 +51,14 @@ export async function GET(request:Request){
     const deliveryStatus=recipientCount===0||receipts.length>=recipientCount&&receipts.every(item=>Boolean(item.readAt))?"read":receipts.length>=recipientCount&&receipts.every(item=>Boolean(item.deliveredAt))?"delivered":"sent";
     return {...message,body:message.deletedAt?null:message.body,fileName:message.deletedAt?null:message.fileName,deliveryStatus};
    });
-   return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user});
+   const [room]=await db.select().from(chats).where(eq(chats.id,chatId)).limit(1);
+   return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user,chat:{kind:room?.kind,canPost:room?.kind!=="channel"||room.createdBy===user.userId}});
   }
   const memberships=await db.select().from(chatMembers).where(eq(chatMembers.userId,user.userId));
   const ids=memberships.map(item=>item.chatId);
   const roomRows=ids.length?await db.select().from(chats).where(inArray(chats.id,ids)).orderBy(desc(chats.createdAt)):[];
   const chatList=await Promise.all(roomRows.map(async room=>{
+   if(room.kind==="channel")return {...room,avatarPreset:"📡",canPost:room.createdBy===user.userId};
    if(room.kind!=="direct")return {...room,avatarPreset:"👥"};
    const roomMembers=await db.select().from(chatMembers).where(eq(chatMembers.chatId,room.id));
    const other=roomMembers.find(item=>item.userId!==user.userId);
