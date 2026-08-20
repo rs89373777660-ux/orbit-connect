@@ -52,7 +52,7 @@ export default function MessengerApp(){
  useEffect(()=>{
   setNotificationsEnabled(localStorage.getItem("orbit_notifications")!=="off");
   setSoundEnabled(localStorage.getItem("orbit_sound")!=="off");
-  const audio=new Audio("/orbit-plum.wav");audio.preload="auto";plumAudio.current=audio;
+  const audio=new Audio("/orbit-plum.wav?v=3");audio.preload="auto";plumAudio.current=audio;
   const unlock=()=>{audio.volume=.001;void audio.play().then(()=>{audio.pause();audio.currentTime=0;audio.volume=.85}).catch(()=>undefined)};
   document.addEventListener("pointerdown",unlock,{once:true});
   return()=>document.removeEventListener("pointerdown",unlock);
@@ -184,7 +184,7 @@ export default function MessengerApp(){
  }
  function setSoundPreference(enabled:boolean){setSoundEnabled(enabled);localStorage.setItem("orbit_sound",enabled?"on":"off");if(enabled){const audio=plumAudio.current;if(audio){audio.currentTime=0;void audio.play().catch(()=>undefined)}}}
  async function previewPlum(){
-  try{const audio=new Audio(`/orbit-plum.wav?v=2`);audio.volume=1;await audio.play();notify("Звук «плюм» воспроизведён")}
+  try{const audio=new Audio(`/orbit-plum.wav?v=3`);audio.volume=1;await audio.play();notify("Звук «плюм» воспроизведён")}
   catch{notify("Не удалось включить звук. Проверьте громкость мультимедиа")}
  }
  async function shareApp(){
