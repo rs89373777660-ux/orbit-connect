@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatMembers, chats, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
@@ -12,7 +12,7 @@ async function identity(request:Request){
   const id=crypto.randomUUID(),now=Date.now();
   await db.batch([
    db.insert(chats).values({id,title:"Избранное",kind:"direct",createdBy:user.userId,createdAt:now}),
-   db.insert(chatMembers).values({chatId:id,userId:user.userId,role:"owner",joinedAt:now}),
+   db.insert(chatMembers).values({chatId:id,userId:user.userId,role:"owner",pinnedAt:now,joinedAt:now}),
    db.insert(messages).values({id:crypto.randomUUID(),chatId:id,senderId:user.userId,body:"Это ваш личный чат. Здесь можно хранить сообщения и файлы.",kind:"system",createdAt:now})
   ]);
  }
@@ -77,8 +77,9 @@ async function ensureCommunity(userId:string){
  const [registered]=await db.select({id:users.id}).from(users).where(eq(users.registrationCompleted,true)).orderBy(asc(users.createdAt)).limit(1);
  if(!registered)return;
  await db.insert(chats).values({id:COMMUNITY_ID,title:"Orbit Connect · Новости",kind:"channel",createdBy:registered.id,createdAt:now}).onConflictDoNothing();
- await db.insert(chatMembers).values({chatId:COMMUNITY_ID,userId,role:userId===registered.id?"owner":"member",joinedAt:now}).onConflictDoNothing();
+ await db.insert(chatMembers).values({chatId:COMMUNITY_ID,userId,role:userId===registered.id?"owner":"member",pinnedAt:now,joinedAt:now}).onConflictDoNothing();
  await db.insert(messages).values({id:RELEASE_ID,chatId:COMMUNITY_ID,senderId:registered.id,kind:"system",body:RELEASE_NOTES,createdAt:now}).onConflictDoNothing();
+ if(userId!==registered.id)await db.insert(messageReceipts).values({messageId:RELEASE_ID,userId,deliveredAt:now}).onConflictDoNothing();
 }
 
 export async function GET(request:Request){
@@ -104,17 +105,26 @@ export async function GET(request:Request){
    return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user,chat:{kind:room?.kind,canPost:room?.kind!=="channel"||room.createdBy===user.userId}});
   }
   const memberships=await db.select().from(chatMembers).where(eq(chatMembers.userId,user.userId));
+  const membershipMap=new Map(memberships.map(item=>[item.chatId,item]));
   const ids=memberships.map(item=>item.chatId);
   const roomRows=ids.length?await db.select().from(chats).where(inArray(chats.id,ids)).orderBy(desc(chats.createdAt)):[];
-  const chatList=await Promise.all(roomRows.map(async room=>{
-   if(room.kind==="channel")return {...room,avatarPreset:"📡",canPost:room.createdBy===user.userId};
-   if(room.kind!=="direct")return {...room,avatarPreset:"👥"};
+  const chatListUnsorted=await Promise.all(roomRows.map(async room=>{
+   const membershipRow=membershipMap.get(room.id),unreadRows=await db.select({id:messageReceipts.messageId}).from(messageReceipts).innerJoin(messages,eq(messageReceipts.messageId,messages.id)).where(and(eq(messageReceipts.userId,user.userId),isNull(messageReceipts.readAt),eq(messages.chatId,room.id))).limit(999);
+   const base={...room,pinnedAt:membershipRow?.pinnedAt||null,unreadCount:unreadRows.length,systemPinned:room.id===COMMUNITY_ID};
+   if(room.kind==="channel")return {...base,avatarPreset:"📡",canPost:room.createdBy===user.userId,systemPinned:true};
+   if(room.kind!=="direct")return {...base,avatarPreset:"👥"};
    const roomMembers=await db.select().from(chatMembers).where(eq(chatMembers.chatId,room.id));
    const other=roomMembers.find(item=>item.userId!==user.userId);
-   if(!other)return {...room,avatarPreset:"⭐"};
+   if(!other)return {...base,avatarPreset:"⭐",systemPinned:true};
    const [person]=await db.select({id:users.id,name:users.name,avatarData:users.avatarData,avatarPreset:users.avatarPreset,privacyPhoto:users.privacyPhoto}).from(users).where(eq(users.id,other.userId)).limit(1);
-   return person?{...room,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null}:room;
+   return person?{...base,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null}:base;
   }));
+  const chatList=chatListUnsorted.sort((a,b)=>{
+   const systemRank=(item:typeof a)=>item.id===COMMUNITY_ID?2:item.systemPinned?1:0,diff=systemRank(b)-systemRank(a);if(diff)return diff;
+   const pinDiff=Number(Boolean(b.pinnedAt))-Number(Boolean(a.pinnedAt));if(pinDiff)return pinDiff;
+   if(a.pinnedAt&&b.pinnedAt&&a.pinnedAt!==b.pinnedAt)return b.pinnedAt-a.pinnedAt;
+   return b.createdAt-a.createdAt;
+  });
   const directory=await db.select({id:users.id,name:users.name,email:users.email}).from(users).orderBy(asc(users.name)).limit(100);
   return Response.json({user,chatList,memberships,directory});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"Ошибка сервера"},{status:500})}
@@ -125,6 +135,15 @@ export async function POST(request:Request){
   const user=await identity(request);if(!user)return Response.json({error:"Требуется вход"},{status:401});
   const p=await request.json() as {action?:string;chatId?:string;title?:string;body?:string;memberIds?:string[];replyTo?:string;messageId?:string;emoji?:string};
   const db=getDb();
+  if(p.action==="pin-chat"){
+   if(!p.chatId||!await member(p.chatId,user.userId))return Response.json({error:"Чат не найден"},{status:404});
+   const [room]=await db.select().from(chats).where(eq(chats.id,p.chatId)).limit(1),roomMembers=await db.select().from(chatMembers).where(eq(chatMembers.chatId,p.chatId));
+   const systemPinned=p.chatId===COMMUNITY_ID||room?.kind==="direct"&&room.createdBy===user.userId&&roomMembers.length===1;
+   if(systemPinned)return Response.json({ok:true,systemPinned:true});
+   const membershipRow=roomMembers.find(item=>item.userId===user.userId),pinnedAt=membershipRow?.pinnedAt?null:Date.now();
+   await db.update(chatMembers).set({pinnedAt}).where(and(eq(chatMembers.chatId,p.chatId),eq(chatMembers.userId,user.userId)));
+   return Response.json({ok:true,pinnedAt});
+  }
   if(p.action==="create-chat"){
    const title=p.title?.trim();if(!title)return Response.json({error:"Введите название"},{status:400});
    const id=crypto.randomUUID(),now=Date.now();

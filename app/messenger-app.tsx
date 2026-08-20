@@ -1,5 +1,6 @@
 "use client";
 import { CSSProperties, ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import "./chat-list.css";
 
 type Privacy={phone:boolean;email:boolean;status:boolean;socials:boolean;photo:boolean};
 type Profile={
@@ -8,7 +9,7 @@ type Profile={
  avatarUrl?:string|null;avatarPreset?:string|null;hasAvatar?:boolean;registered?:boolean;online?:boolean;isContact?:boolean;
  privacy?:Privacy;syncContactsEnabled?:boolean;autoCorrectEnabled?:boolean
 };
-type Chat={id:string;name:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean};
+type Chat={id:string;name:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean;pinnedAt?:number|null;systemPinned?:boolean;unreadCount?:number};
 type Message={id:string;senderId:string;body:string|null;kind:string;fileName?:string|null;fileSize?:number|null;fileMime?:string|null;replyTo?:string|null;forwardedFromId?:string|null;editedAt?:number|null;deletedAt?:number|null;deliveryStatus?:"sent"|"delivered"|"read";createdAt:number};
 type PhoneEntry={name:string;phone:string};
 type AppNotification={id:string;kind:string;body:string;entityId?:string|null;readAt?:number|null;createdAt:number};
@@ -173,7 +174,7 @@ export default function MessengerApp(){
  }
  async function loadChats(){
   const r=await appFetch("/api/sync",{cache:"no-store"});if(!r.ok)return;
-  const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset,canPost:room.canPost}));
+  const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean;pinnedAt?:number|null;systemPinned?:boolean;unreadCount?:number})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset,canPost:room.canPost,pinnedAt:room.pinnedAt,systemPinned:room.systemPinned,unreadCount:Math.min(999,room.unreadCount||0)}));
   setChats(list);
   const current=activeChat?list.find(item=>item.id===activeChat.id):list[0];
   if(current){setActiveChat(current);await loadMessages(current.id,data.user.userId)}
@@ -186,6 +187,11 @@ export default function MessengerApp(){
   const r=await appFetch("/api/people",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"add-contact",targetUserId:person.id})});
   const data=await r.json().catch(()=>({}));if(!r.ok){notify(data.error||"Не удалось добавить");return}
   await loadPeople();notify("Пользователь добавлен в контакты");
+ }
+ async function togglePin(chat:Chat){
+  if(chat.systemPinned){notify("Этот чат всегда закреплён");return}
+  const r=await appFetch("/api/sync",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"pin-chat",chatId:chat.id})}),data=await r.json().catch(()=>({}));
+  if(!r.ok){notify(data.error||"Не удалось изменить закрепление");return}await loadChats();notify(data.pinnedAt?"Чат закреплён":"Чат откреплён");
  }
  async function openChat(person:Profile){
   setProgress("СОЗДАЁМ ЧАТ…");
@@ -283,7 +289,7 @@ export default function MessengerApp(){
   <aside className="orbit-nav"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><button className={section==="chats"?"active":""} onClick={()=>setSection("chats")}>▤<span>Чаты</span></button><button className={section==="contacts"?"active":""} onClick={()=>setSection("contacts")}>♙<span>Контакты</span></button><button className={section==="settings"?"active":""} onClick={()=>setSection("settings")}>⚙<span>Настройки</span></button></aside>
   <section className="orbit-list">
    <header><div><small>ORBIT / CONNECT</small><h1>{section==="chats"?"Сообщения":section==="contacts"?"Контакты":"Настройки"}</h1></div>{section!=="settings"&&<button className="compose" aria-label="Создать сообщение" onClick={()=>{setComposeOpen(true);setSearch("")}}>✎</button>}</header>
-   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><button key={chat.id} className={activeChat?.id===chat.id?"person-row selected":"person-row"} onClick={()=>{setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>)}</div>}
+   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><div key={chat.id} className={activeChat?.id===chat.id?"person-row selected chat-row":"person-row chat-row"}><button className="person-main" onClick={()=>{setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="channel"?"Канал новостей":chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>{Boolean(chat.unreadCount)&&<b className="unread-count" aria-label={`Непрочитанных сообщений: ${chat.unreadCount}`}>{Math.min(999,chat.unreadCount||0)}</b>}<button className={`chat-pin${chat.pinnedAt||chat.systemPinned?" active":""}`} aria-label={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} title={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} onClick={()=>void togglePin(chat)}>⌖</button></div>)}</div>}
    {section==="contacts"&&<div className="list-scroll"><div className="section-label">МОИ КОНТАКТЫ · {contacts.length}</div>{contacts.length===0&&<Empty text="Контактов пока нет. Нажмите «Создать сообщение» и найдите человека."/ >}{contacts.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl} preset={person.avatarPreset}/><span><b>{person.name}</b><small>{person.handle} {person.online?"· онлайн":""}</small></span></button><button className="write" onClick={()=>void openChat(person)}>Написать</button></div>)}</div>}
    {section==="settings"&&profile&&<Settings profile={profile} setProfile={setProfile} saveProfile={saveProfile} toggleSync={toggleSync} syncing={syncing} syncNow={()=>syncPhonebook(false)} avatarInput={avatarInput} uploadAvatar={uploadAvatar} openPrivacy={()=>setPrivacyOpen(true)} openGallery={()=>void openGallery()} avatarGallery={avatarGallery} loadAvatarGallery={()=>void loadAvatarGallery()} avatarAction={(action,id)=>void avatarAction(action,id)} theme={theme} setTheme={value=>{setTheme(value);localStorage.setItem("orbit_theme",value)}} shareApp={()=>void shareApp()}/>}
    {section==="settings"&&<div className="settings-tools"><button title="Проверить обновления" disabled={checkingUpdate} onClick={()=>void checkUpdates(true)}>↻</button><button title="Настройки уведомлений" onClick={()=>setNotificationSettingsOpen(true)}>♬</button></div>}
