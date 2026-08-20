@@ -56,8 +56,10 @@ export function publicProfile(row:typeof users.$inferSelect,isOwn=false){
   birthYear:isOwn?row.birthYear:null,
   status:show(row.privacyStatus,row.status),
   socials:show(row.privacySocials,parseSocials(row.socialsJson)),
-  avatarUrl:show(row.privacyPhoto&&Boolean(row.avatarData),row.avatarData?`/api/avatar?id=${encodeURIComponent(row.id)}`:null),
+  avatarUrl:show(row.privacyPhoto&&Boolean(row.avatarData)&&!row.avatarPreset,row.avatarData&&!row.avatarPreset?`/api/avatar?id=${encodeURIComponent(row.id)}`:null),
   hasAvatar:Boolean(row.avatarData),
+  avatarPreset:row.avatarPreset,
+  autoCorrectEnabled:isOwn?row.autoCorrectEnabled:undefined,
   registered:row.registrationCompleted,
   privacy:isOwn?{
    phone:row.privacyPhone,email:row.privacyEmail,status:row.privacyStatus,

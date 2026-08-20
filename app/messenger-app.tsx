@@ -5,11 +5,11 @@ type Privacy={phone:boolean;email:boolean;status:boolean;socials:boolean;photo:b
 type Profile={
  id:string;name:string;handle:string;publicId:string;phone?:string|null;phoneLast4?:string|null;
  email?:string|null;birthYear?:number|null;status?:string|null;socials?:Record<string,string>|null;
- avatarUrl?:string|null;hasAvatar?:boolean;registered?:boolean;online?:boolean;isContact?:boolean;
- privacy?:Privacy;syncContactsEnabled?:boolean
+ avatarUrl?:string|null;avatarPreset?:string|null;hasAvatar?:boolean;registered?:boolean;online?:boolean;isContact?:boolean;
+ privacy?:Privacy;syncContactsEnabled?:boolean;autoCorrectEnabled?:boolean
 };
-type Chat={id:string;name:string;kind:string;createdAt:number};
-type Message={id:string;senderId:string;body:string|null;kind:string;fileName?:string|null;fileSize?:number|null;createdAt:number};
+type Chat={id:string;name:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null};
+type Message={id:string;senderId:string;body:string|null;kind:string;fileName?:string|null;fileSize?:number|null;forwardedFromId?:string|null;editedAt?:number|null;deletedAt?:number|null;deliveryStatus?:"sent"|"delivered"|"read";createdAt:number};
 type PhoneEntry={name:string;phone:string};
 type AppNotification={id:string;kind:string;body:string;entityId?:string|null;readAt?:number|null;createdAt:number};
 type UpdateInfo={build:string;title:string;notes:string[];releasedAt:string;checkIntervalMs:number;apk:{version:string;url:string;sha256:string};nativeUpdate?:boolean};
@@ -23,6 +23,7 @@ function initials(name:string){return name.split(/\s+/).map(x=>x[0]).join("").sl
 function normalizePhone(value:string){const digits=value.replace(/\D/g,"");if(digits.length===10)return `7${digits}`;if(digits.length===11&&digits.startsWith("8"))return `7${digits.slice(1)}`;return digits.slice(-15)}
 async function phoneHash(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(normalizePhone(value)));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function compareVersions(left:string,right:string){const a=left.split(".").map(Number),b=right.split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const delta=(a[i]||0)-(b[i]||0);if(delta)return delta}return 0}
+const AVATAR_PRESETS=["🪐","🚀","🌙","⚡","🌿","🎧","☄️","✦","🦊","🐼","😎","🤖"];
 
 export default function MessengerApp(){
  const [ready,setReady]=useState(false),[error,setError]=useState(""),[,setProgress]=useState(""),[intro,setIntro]=useState(true);
@@ -30,6 +31,7 @@ export default function MessengerApp(){
  const [contacts,setContacts]=useState<Profile[]>([]),[searchResults,setSearchResults]=useState<Profile[]>([]);
  const [chats,setChats]=useState<Chat[]>([]),[activeChat,setActiveChat]=useState<Chat|null>(null),[messages,setMessages]=useState<Message[]>([]);
  const [draft,setDraft]=useState(""),[search,setSearch]=useState(""),[composeOpen,setComposeOpen]=useState(false),[profileOpen,setProfileOpen]=useState<Profile|null>(null),[mobileChatOpen,setMobileChatOpen]=useState(false);
+ const [messageMenu,setMessageMenu]=useState<Message|null>(null),[editingMessage,setEditingMessage]=useState<Message|null>(null),[deleteMessage,setDeleteMessage]=useState<Message|null>(null),[forwardMessage,setForwardMessage]=useState<Message|null>(null),[aiMenuOpen,setAiMenuOpen]=useState(false);
  const [privacyOpen,setPrivacyOpen]=useState(false),[notificationSettingsOpen,setNotificationSettingsOpen]=useState(false),[toast,setToast]=useState(""),[syncing,setSyncing]=useState(false),[aiWorking,setAiWorking]=useState(false);
  const [notificationsEnabled,setNotificationsEnabled]=useState(true),[soundEnabled,setSoundEnabled]=useState(true),[updateInfo,setUpdateInfo]=useState<UpdateInfo|null>(null),[checkingUpdate,setCheckingUpdate]=useState(false);
  const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>());
@@ -162,7 +164,7 @@ export default function MessengerApp(){
  }
  async function loadChats(){
   const r=await appFetch("/api/sync",{cache:"no-store"});if(!r.ok)return;
-  const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt}));
+  const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset}));
   setChats(list);
   const current=activeChat?list.find(item=>item.id===activeChat.id):list[0];
   if(current){setActiveChat(current);await loadMessages(current.id,data.user.userId)}
@@ -184,10 +186,13 @@ export default function MessengerApp(){
   const chat={id:data.chat.id,name:person.name,kind:"direct",createdAt:data.chat.createdAt};setActiveChat(chat);setComposeOpen(false);setSection("chats");setMobileChatOpen(true);await loadChats();
  }
  async function send(){
-  const text=draft.trim();if(!text||!activeChat)return;setProgress("ОТПРАВЛЯЕМ…");
+  let text=draft.trim();if(!text||!activeChat)return;setProgress(editingMessage?"ИЗМЕНЯЕМ…":"ОТПРАВЛЯЕМ…");
   try{
-   const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId:activeChat.id,body:text})});
-   if(!r.ok){notify("Сообщение не отправлено");return}setDraft("");await loadMessages(activeChat.id);
+   if(profile?.autoCorrectEnabled&&!editingMessage){const corrected=await requestAi("correct",text);if(corrected)text=corrected}
+   const payload=editingMessage?{action:"edit",messageId:editingMessage.id,body:text}:{chatId:activeChat.id,body:text};
+   const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
+   const data=await r.json().catch(()=>({}));if(!r.ok){notify(data.error||"Сообщение не отправлено");return}
+   setDraft("");setEditingMessage(null);await loadMessages(activeChat.id);
   }finally{setProgress("")}
  }
  async function attach(event:ChangeEvent<HTMLInputElement>){
@@ -196,13 +201,35 @@ export default function MessengerApp(){
   const headers=new Headers(),token=localStorage.getItem("orbit_session");if(token)headers.set("authorization",`Bearer ${token}`);
   const r=await fetch("/api/files",{method:"POST",headers,body:form});setProgress("");if(r.ok)await loadMessages(activeChat.id);else notify("Файл не отправлен");event.target.value="";
  }
+ async function requestAi(mode:"generate"|"correct"|"emoji",text:string){
+  setAiWorking(true);const r=await appFetch("/api/ai",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({mode,text})});
+  const data=await r.json().catch(()=>({}));setAiWorking(false);return r.ok?String(data.text||text):null;
+ }
  async function ai(mode:"generate"|"correct"|"emoji"){
-  setAiWorking(true);setProgress("ИИ ПОМОГАЕТ…");
-  const r=await appFetch("/api/ai",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({mode,text:draft})});
-  const data=await r.json().catch(()=>({}));if(r.ok)setDraft(data.text||draft);else notify("ИИ временно недоступен");setAiWorking(false);setProgress("");
+  setProgress("ИИ ПОМОГАЕТ…");const result=await requestAi(mode,draft);if(result!==null)setDraft(result);else notify("ИИ временно недоступен");setAiMenuOpen(false);setProgress("");
+ }
+ async function messageAction(action:"edit"|"copy"|"share"|"forward"|"delete",message:Message){
+  setMessageMenu(null);
+  if(action==="edit"){setEditingMessage(message);setDraft(message.body||"");return}
+  if(action==="copy"){await navigator.clipboard.writeText(message.body||"");notify("Сообщение скопировано");return}
+  if(action==="share"){
+   const text=message.body||message.fileName||"Сообщение Orbit Connect";
+   if(navigator.share)await navigator.share({title:"Orbit Connect",text}).catch(()=>undefined);else{await navigator.clipboard.writeText(text);notify("Текст скопирован для отправки")}
+   return;
+  }
+  if(action==="forward"){setForwardMessage(message);return}
+  setDeleteMessage(message);
+ }
+ async function forwardTo(targetChatId:string){
+  if(!forwardMessage)return;const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"forward",messageId:forwardMessage.id,targetChatId})});
+  const data=await r.json().catch(()=>({}));if(!r.ok){notify(data.error||"Не удалось переслать");return}setForwardMessage(null);notify("Сообщение переслано");if(activeChat?.id===targetChatId)await loadMessages(targetChatId);
+ }
+ async function removeMessage(scope:"me"|"all"){
+  if(!deleteMessage||!activeChat)return;const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"delete",messageId:deleteMessage.id,scope})});
+  const data=await r.json().catch(()=>({}));if(!r.ok){notify(data.error||"Не удалось удалить");return}setDeleteMessage(null);await loadMessages(activeChat.id);notify(scope==="all"?"Сообщение удалено у всех":"Сообщение удалено у вас");
  }
  async function saveProfile(next:Profile){
-  const r=await appFetch("/api/profile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:next.name,email:next.email,birthYear:next.birthYear,handle:next.handle,status:next.status,socials:next.socials,syncContactsEnabled:next.syncContactsEnabled,privacy:next.privacy})});
+  const r=await appFetch("/api/profile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:next.name,email:next.email,birthYear:next.birthYear,handle:next.handle,status:next.status,socials:next.socials,syncContactsEnabled:next.syncContactsEnabled,avatarPreset:next.avatarPreset,autoCorrectEnabled:next.autoCorrectEnabled,privacy:next.privacy})});
   const data=await r.json().catch(()=>({}));if(!r.ok){notify(data.error||"Не удалось сохранить");return false}setProfile(data.profile);notify("Настройки сохранены");return true;
  }
  async function toggleSync(enabled:boolean){
@@ -238,7 +265,7 @@ export default function MessengerApp(){
   const scale=Math.max(size/bitmap.width,size/bitmap.height),w=bitmap.width*scale,h=bitmap.height*scale;
   canvas.getContext("2d")!.drawImage(bitmap,(size-w)/2,(size-h)/2,w,h);
   const avatarData=canvas.toDataURL("image/jpeg",.82),r=await appFetch("/api/avatar",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({avatarData})});
-  const data=await r.json().catch(()=>({}));if(r.ok)setProfile({...profile,avatarUrl:data.avatarUrl,hasAvatar:true});else notify(data.error||"Фото не загружено");event.target.value="";
+  const data=await r.json().catch(()=>({}));if(r.ok)setProfile({...profile,avatarUrl:data.avatarUrl,avatarPreset:null,hasAvatar:true});else notify(data.error||"Фото не загружено");event.target.value="";
  }
 
  if(error)return <div className="orbit-auth"><img src="/orbit-connect-icon-192.png" alt="Orbit"/><p>ORBIT / CONNECT</p><h1>Нет соединения</h1><span>{error}</span><button onClick={()=>location.reload()}>Повторить</button></div>;
@@ -249,24 +276,41 @@ export default function MessengerApp(){
   <aside className="orbit-nav"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><button className={section==="chats"?"active":""} onClick={()=>setSection("chats")}>▤<span>Чаты</span></button><button className={section==="contacts"?"active":""} onClick={()=>setSection("contacts")}>♙<span>Контакты</span></button><button className={section==="settings"?"active":""} onClick={()=>setSection("settings")}>⚙<span>Настройки</span></button></aside>
   <section className="orbit-list">
    <header><div><small>ORBIT / CONNECT</small><h1>{section==="chats"?"Сообщения":section==="contacts"?"Контакты":"Настройки"}</h1></div>{section!=="settings"&&<button className="compose" aria-label="Создать сообщение" onClick={()=>{setComposeOpen(true);setSearch("")}}>✎</button>}</header>
-   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><button key={chat.id} className={activeChat?.id===chat.id?"person-row selected":"person-row"} onClick={()=>{setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name}/><span><b>{chat.name}</b><small>{chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>)}</div>}
-   {section==="contacts"&&<div className="list-scroll"><div className="section-label">МОИ КОНТАКТЫ · {contacts.length}</div>{contacts.length===0&&<Empty text="Контактов пока нет. Нажмите «Создать сообщение» и найдите человека."/ >}{contacts.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl}/><span><b>{person.name}</b><small>{person.handle} {person.online?"· онлайн":""}</small></span></button><button className="write" onClick={()=>void openChat(person)}>Написать</button></div>)}</div>}
+   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><button key={chat.id} className={activeChat?.id===chat.id?"person-row selected":"person-row"} onClick={()=>{setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>)}</div>}
+   {section==="contacts"&&<div className="list-scroll"><div className="section-label">МОИ КОНТАКТЫ · {contacts.length}</div>{contacts.length===0&&<Empty text="Контактов пока нет. Нажмите «Создать сообщение» и найдите человека."/ >}{contacts.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl} preset={person.avatarPreset}/><span><b>{person.name}</b><small>{person.handle} {person.online?"· онлайн":""}</small></span></button><button className="write" onClick={()=>void openChat(person)}>Написать</button></div>)}</div>}
    {section==="settings"&&profile&&<Settings profile={profile} setProfile={setProfile} saveProfile={saveProfile} toggleSync={toggleSync} syncing={syncing} syncNow={()=>syncPhonebook(false)} avatarInput={avatarInput} uploadAvatar={uploadAvatar} openPrivacy={()=>setPrivacyOpen(true)}/>}
    {section==="settings"&&<div className="settings-tools"><button title="Проверить обновления" disabled={checkingUpdate} onClick={()=>void checkUpdates(true)}>↻</button><button title="Настройки уведомлений" onClick={()=>setNotificationSettingsOpen(true)}>♬</button></div>}
   </section>
   <section className={mobileChatOpen?"orbit-chat mobile-open":"orbit-chat"}>
-   {activeChat?<><header><button className="mobile-chat-back" onClick={()=>setMobileChatOpen(false)}>‹</button><Avatar name={activeChat.name}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="group"?"группа":"личный чат"}</small></div><button onClick={()=>notify("Аудиозвонок запускается")}>☎</button><button onClick={()=>notify("Видеозвонок запускается")}>▣</button></header><div className="message-scroll">{messages.map(message=><div key={message.id} className={message.senderId===profile?.id?"msg me":"msg"}>{message.kind==="file"?<a href={`/api/files?id=${encodeURIComponent(message.id)}`}><b>{message.fileName||"Файл"}</b><span>{message.fileSize?Math.ceil(message.fileSize/1024)+" КБ":""}</span></a>:<p>{message.body}</p>}<time>{new Date(message.createdAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</time></div>)}</div><div className="ai-row"><button disabled={aiWorking} onClick={()=>void ai("generate")}>✦ Написать</button><button disabled={!draft||aiWorking} onClick={()=>void ai("correct")}>✓ Исправить</button><button disabled={!draft||aiWorking} onClick={()=>void ai("emoji")}>☺ Эмодзи</button></div><footer><button onClick={()=>fileInput.current?.click()}>＋</button><input ref={fileInput} type="file" hidden onChange={attach}/><textarea rows={1} value={draft} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void send()}}} placeholder="Сообщение"/><button className="send" onClick={()=>void send()}>↑</button></footer></>:<Empty text="Выберите чат или создайте новое сообщение"/>}
+   {activeChat?<>
+    <header><button className="mobile-chat-back" onClick={()=>setMobileChatOpen(false)}>‹</button><Avatar name={activeChat.name} url={activeChat.avatarUrl} preset={activeChat.avatarPreset}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="group"?"группа":"личный чат"}</small></div><button onClick={()=>notify("Аудиозвонок запускается")}>☎</button><button onClick={()=>notify("Видеозвонок запускается")}>▣</button></header>
+    <div className="message-scroll">{messages.map(message=>{
+     const mine=message.senderId===profile?.id,status=message.deliveryStatus==="read"?"прочитано":message.deliveryStatus==="delivered"?"доставлено":"отправлено";
+     return <div key={message.id} className={`${mine?"msg me":"msg"}${message.deletedAt?" deleted":""}`}>
+      {!message.deletedAt&&<button className="message-more" aria-label="Действия с сообщением" onClick={()=>setMessageMenu(message)}>•••</button>}
+      {message.forwardedFromId&&<small className="forwarded-label">↗ Пересланное сообщение</small>}
+      {message.deletedAt?<p className="deleted-copy">Сообщение удалено</p>:message.kind==="file"?<a href={`/api/files?id=${encodeURIComponent(message.id)}`}><b>{message.fileName||"Файл"}</b><span>{message.fileSize?Math.ceil(message.fileSize/1024)+" КБ":""}</span></a>:<p>{message.body}</p>}
+      <div className="message-meta">{message.editedAt&&<span>изменено</span>}<time>{new Date(message.createdAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</time>{mine&&!message.deletedAt&&<span className={`delivery ${message.deliveryStatus||"sent"}`} title={status}>{message.deliveryStatus==="read"?"✓✓":"✓"} {status}</span>}</div>
+     </div>
+    })}</div>
+    {editingMessage&&<div className="editing-bar"><span><b>Редактирование</b><small>{editingMessage.body}</small></span><button onClick={()=>{setEditingMessage(null);setDraft("")}}>×</button></div>}
+    <div className="ai-row"><button className="ai-master" disabled={aiWorking} onClick={()=>setAiMenuOpen(value=>!value)}>✦ ИИ-помощник <span>⌃</span></button>{aiMenuOpen&&<div className="ai-menu"><button disabled={aiWorking} onClick={()=>void ai("generate")}>✦ Написать</button><button disabled={!draft||aiWorking||Boolean(profile?.autoCorrectEnabled)} title={profile?.autoCorrectEnabled?"Исправление включено автоматически":""} onClick={()=>void ai("correct")}>✓ Исправить ошибки</button><button disabled={!draft||aiWorking} onClick={()=>void ai("emoji")}>☺ Расставить эмодзи</button></div>}</div>
+    <footer><button onClick={()=>fileInput.current?.click()}>＋</button><input ref={fileInput} type="file" hidden onChange={attach}/><textarea rows={1} value={draft} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void send()}}} placeholder={editingMessage?"Измените сообщение":"Сообщение"}/><button className="send" onClick={()=>void send()}>{editingMessage?"✓":"↑"}</button></footer>
+   </>:<Empty text="Выберите чат или создайте новое сообщение"/>}
   </section>
   {composeOpen&&<Compose contacts={contacts} results={searchResults} search={search} setSearch={setSearch} close={()=>setComposeOpen(false)} addContact={addContact} openChat={openChat} openProfile={openProfile}/>}
   {profileOpen&&<ProfileModal profile={profileOpen} close={()=>setProfileOpen(null)} addContact={addContact} openChat={openChat}/>}
   {privacyOpen&&profile&&<PrivacyModal profile={profile} close={()=>setPrivacyOpen(false)} save={async privacy=>{const next={...profile,privacy};setProfile(next);if(await saveProfile(next))setPrivacyOpen(false)}}/>}
   {updateInfo&&<UpdateModal info={updateInfo} close={()=>setUpdateInfo(null)} apply={()=>void applyUpdate()}/>}
   {notificationSettingsOpen&&<NotificationSettings enabled={notificationsEnabled} sound={soundEnabled} close={()=>setNotificationSettingsOpen(false)} setEnabled={value=>void setNotificationPreference(value)} setSound={setSoundPreference}/>}
+  {messageMenu&&<MessageActions message={messageMenu} mine={messageMenu.senderId===profile?.id} close={()=>setMessageMenu(null)} act={action=>void messageAction(action,messageMenu)}/>}
+  {forwardMessage&&<ForwardMessage chats={chats} close={()=>setForwardMessage(null)} forward={chatId=>void forwardTo(chatId)}/>}
+  {deleteMessage&&<DeleteMessage mine={deleteMessage.senderId===profile?.id} group={activeChat?.kind==="group"} close={()=>setDeleteMessage(null)} remove={scope=>void removeMessage(scope)}/>}
   {toast&&<div className="orbit-toast">{toast}</div>}
  </main>
 }
 
-function Avatar({name,url}:{name:string;url?:string|null}){return <span className="orbit-avatar" style={url?{backgroundImage:`url(${url})`}:undefined}>{url?"":initials(name)}</span>}
+function Avatar({name,url,preset}:{name:string;url?:string|null;preset?:string|null}){return <span className={`orbit-avatar${preset&&!url?" preset":""}`} style={url?{backgroundImage:`url(${url})`}:undefined}>{url?"":preset||initials(name)}</span>}
 function Empty({text}:{text:string}){return <div className="orbit-empty"><img src="/orbit-connect-logo-v3.png" alt=""/><p>{text}</p></div>}
 function EntryIntro(){return <div className="entry-intro"><div className="entry-halo"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i/><i/></div><div className="entry-word"><b>ORBIT</b><span>CONNECT</span></div><small>ТВОЙ КРУГ СТАНОВИТСЯ БЛИЖЕ</small></div>}
 
@@ -280,15 +324,36 @@ function Registration({profile,onComplete,notify}:{profile:Profile;onComplete:(p
 }
 
 function Settings({profile,setProfile,saveProfile,toggleSync,syncing,syncNow,avatarInput,uploadAvatar,openPrivacy}:{profile:Profile;setProfile:(value:Profile)=>void;saveProfile:(value:Profile)=>Promise<boolean>;toggleSync:(value:boolean)=>Promise<void>;syncing:boolean;syncNow:()=>void;avatarInput:React.RefObject<HTMLInputElement|null>;uploadAvatar:(event:ChangeEvent<HTMLInputElement>)=>void;openPrivacy:()=>void}){
- const socials=profile.socials||{};return <div className="settings-scroll"><button className="profile-photo" onClick={()=>avatarInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl}/><b>Сменить фотографию</b></button><input ref={avatarInput} type="file" accept="image/*" hidden onChange={uploadAvatar}/><div className="identity"><b>{profile.name}</b><span>{profile.handle}</span><small>Неизменяемый ID: {profile.publicId}</small></div><div className="setting-block"><h3>Профиль</h3><label>ФИО<input value={profile.name} onChange={event=>setProfile({...profile,name:event.target.value})}/></label><label>Никнейм<input value={profile.handle} onChange={event=>setProfile({...profile,handle:event.target.value.startsWith("$")?event.target.value:`$${event.target.value}`})}/></label><label>Email<input type="email" value={profile.email||""} onChange={event=>setProfile({...profile,email:event.target.value})}/></label><label>Статус<textarea rows={3} maxLength={120} value={profile.status||""} onChange={event=>setProfile({...profile,status:event.target.value})} placeholder="Расскажите, чем вы заняты"/></label><label>Год рождения<input inputMode="numeric" value={profile.birthYear||""} onChange={event=>setProfile({...profile,birthYear:Number(event.target.value)||null})}/></label><label>Telegram<input value={socials.telegram||""} onChange={event=>setProfile({...profile,socials:{...socials,telegram:event.target.value}})}/></label><label>ВКонтакте<input value={socials.vk||""} onChange={event=>setProfile({...profile,socials:{...socials,vk:event.target.value}})}/></label><label>Сайт<input value={socials.website||""} onChange={event=>setProfile({...profile,socials:{...socials,website:event.target.value}})}/></label><button className="primary-action" onClick={()=>void saveProfile(profile)}>Сохранить профиль</button></div><div className="setting-block"><h3>Контакты</h3><label className="switch-row"><span><b>Постоянная синхронизация</b><small>При открытии приложения и каждые 2 минуты</small></span><input type="checkbox" role="switch" checked={Boolean(profile.syncContactsEnabled)} onChange={event=>void toggleSync(event.target.checked)}/><i/></label><button className="plain-row" disabled={syncing} onClick={syncNow}><span>{syncing?"Синхронизация…":"Синхронизировать сейчас"}</span><b>↻</b></button></div><div className="setting-block"><button className="plain-row" onClick={openPrivacy}><span><b>Конфиденциальность</b><small>Кто видит данные профиля</small></span><b>›</b></button></div><a className="download-row" href="/orbit-connect-v5.apk" download>Скачать APK 1.2.0 для Android ↗</a></div>
+ const socials=profile.socials||{};
+ return <div className="settings-scroll">
+  <button className="profile-photo" onClick={()=>avatarInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl} preset={profile.avatarPreset}/><b>Загрузить свою фотографию</b></button><input ref={avatarInput} type="file" accept="image/*" hidden onChange={uploadAvatar}/>
+  <div className="avatar-presets"><small>ИЛИ ВЫБЕРИТЕ СТАНДАРТНУЮ ИКОНКУ</small><div>{AVATAR_PRESETS.map(item=><button key={item} className={profile.avatarPreset===item?"active":""} onClick={()=>{const next={...profile,avatarPreset:item,avatarUrl:null};setProfile(next);void saveProfile(next)}}>{item}</button>)}</div></div>
+  <div className="identity"><b>{profile.name}</b><span>{profile.handle}</span><small>Неизменяемый ID: {profile.publicId}</small></div>
+  <div className="setting-block"><h3>Профиль</h3><label>ФИО<input value={profile.name} onChange={event=>setProfile({...profile,name:event.target.value})}/></label><label>Никнейм<input value={profile.handle} onChange={event=>setProfile({...profile,handle:event.target.value.startsWith("$")?event.target.value:`$${event.target.value}`})}/></label><label>Email<input type="email" value={profile.email||""} onChange={event=>setProfile({...profile,email:event.target.value})}/></label><label>Статус<textarea rows={3} maxLength={120} value={profile.status||""} onChange={event=>setProfile({...profile,status:event.target.value})} placeholder="Расскажите, чем вы заняты"/></label><label>Год рождения<input inputMode="numeric" value={profile.birthYear||""} onChange={event=>setProfile({...profile,birthYear:Number(event.target.value)||null})}/></label><label>Telegram<input value={socials.telegram||""} onChange={event=>setProfile({...profile,socials:{...socials,telegram:event.target.value}})}/></label><label>ВКонтакте<input value={socials.vk||""} onChange={event=>setProfile({...profile,socials:{...socials,vk:event.target.value}})}/></label><label>Сайт<input value={socials.website||""} onChange={event=>setProfile({...profile,socials:{...socials,website:event.target.value}})}/></label><button className="primary-action" onClick={()=>void saveProfile(profile)}>Сохранить профиль</button></div>
+  <div className="setting-block"><h3>Общие настройки</h3><label className="switch-row"><span><b>Исправлять все ошибки автоматически</b><small>Перед отправкой ИИ проверит орфографию и пунктуацию</small></span><input type="checkbox" role="switch" checked={Boolean(profile.autoCorrectEnabled)} onChange={event=>{const next={...profile,autoCorrectEnabled:event.target.checked};setProfile(next);void saveProfile(next)}}/><i/></label></div>
+  <div className="setting-block"><h3>Контакты</h3><label className="switch-row"><span><b>Постоянная синхронизация</b><small>При открытии приложения и каждые 2 минуты</small></span><input type="checkbox" role="switch" checked={Boolean(profile.syncContactsEnabled)} onChange={event=>void toggleSync(event.target.checked)}/><i/></label><button className="plain-row" disabled={syncing} onClick={syncNow}><span>{syncing?"Синхронизация…":"Синхронизировать сейчас"}</span><b>↻</b></button></div>
+  <div className="setting-block"><button className="plain-row" onClick={openPrivacy}><span><b>Конфиденциальность</b><small>Кто видит данные профиля</small></span><b>›</b></button></div><a className="download-row" href="/orbit-connect-v5.apk" download>Скачать APK 1.2.0 для Android ↗</a>
+ </div>
 }
 
 function Compose({contacts,results,search,setSearch,close,addContact,openChat,openProfile}:{contacts:Profile[];results:Profile[];search:string;setSearch:(value:string)=>void;close:()=>void;addContact:(person:Profile)=>Promise<void>;openChat:(person:Profile)=>Promise<void>;openProfile:(person:Profile)=>Promise<void>}){
- const list=search.trim()?results:contacts;return <div className="modal-back"><div className="compose-modal"><header><div><small>НОВОЕ СООБЩЕНИЕ</small><h2>Кому написать?</h2></div><button onClick={close}>×</button></header><label className="people-search">⌕<input autoFocus value={search} onChange={event=>setSearch(event.target.value)} placeholder="Имя, номер телефона или $никнейм"/></label><p>{search.trim()?"НАЙДЕННЫЕ ПОЛЬЗОВАТЕЛИ":"ВАШИ КОНТАКТЫ"}</p><div className="people-list">{list.length===0&&<Empty text={search?"Пользователь не найден":"Контактов пока нет"}/>} {list.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl}/><span><b>{person.name}</b><small>{person.handle}</small></span></button>{!person.isContact&&<button className="write" onClick={()=>void addContact(person)}>Добавить</button>}<button className="write solid" onClick={()=>void openChat(person)}>Написать</button></div>)}</div></div></div>
+ const list=search.trim()?results:contacts;return <div className="modal-back"><div className="compose-modal"><header><div><small>НОВОЕ СООБЩЕНИЕ</small><h2>Кому написать?</h2></div><button onClick={close}>×</button></header><label className="people-search">⌕<input autoFocus value={search} onChange={event=>setSearch(event.target.value)} placeholder="Имя, номер телефона или $никнейм"/></label><p>{search.trim()?"НАЙДЕННЫЕ ПОЛЬЗОВАТЕЛИ":"ВАШИ КОНТАКТЫ"}</p><div className="people-list">{list.length===0&&<Empty text={search?"Пользователь не найден":"Контактов пока нет"}/>} {list.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl} preset={person.avatarPreset}/><span><b>{person.name}</b><small>{person.handle}</small></span></button>{!person.isContact&&<button className="write" onClick={()=>void addContact(person)}>Добавить</button>}<button className="write solid" onClick={()=>void openChat(person)}>Написать</button></div>)}</div></div></div>
 }
 
 function ProfileModal({profile,close,addContact,openChat}:{profile:Profile;close:()=>void;addContact:(person:Profile)=>Promise<void>;openChat:(person:Profile)=>Promise<void>}){
- return <div className="modal-back"><div className="profile-modal"><button className="modal-close" onClick={close}>×</button><Avatar name={profile.name} url={profile.avatarUrl}/><h2>{profile.name}</h2><b>{profile.handle}</b><small>ID: {profile.publicId}</small>{profile.status&&<p className="profile-status">{profile.status}</p>}<dl>{profile.phone&&<><dt>Телефон</dt><dd>{profile.phone}</dd></>}{profile.email&&<><dt>Email</dt><dd>{profile.email}</dd></>}{Object.entries(profile.socials||{}).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl><div className="profile-actions">{!profile.isContact&&<button onClick={()=>void addContact(profile)}>Добавить контакт</button>}<button className="solid" onClick={()=>void openChat(profile)}>Написать</button></div></div></div>
+ return <div className="modal-back"><div className="profile-modal"><button className="modal-close" onClick={close}>×</button><Avatar name={profile.name} url={profile.avatarUrl} preset={profile.avatarPreset}/><h2>{profile.name}</h2><b>{profile.handle}</b><small>ID: {profile.publicId}</small>{profile.status&&<p className="profile-status">{profile.status}</p>}<dl>{profile.phone&&<><dt>Телефон</dt><dd>{profile.phone}</dd></>}{profile.email&&<><dt>Email</dt><dd>{profile.email}</dd></>}{Object.entries(profile.socials||{}).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl><div className="profile-actions">{!profile.isContact&&<button onClick={()=>void addContact(profile)}>Добавить контакт</button>}<button className="solid" onClick={()=>void openChat(profile)}>Написать</button></div></div></div>
+}
+
+function MessageActions({message,mine,close,act}:{message:Message;mine:boolean;close:()=>void;act:(action:"edit"|"copy"|"share"|"forward"|"delete")=>void}){
+ return <div className="modal-back action-back" onClick={close}><div className="message-actions" onClick={event=>event.stopPropagation()}><header><small>ДЕЙСТВИЯ С СООБЩЕНИЕМ</small><button onClick={close}>×</button></header>{mine&&message.kind==="text"&&<button onClick={()=>act("edit")}>✎ <span><b>Редактировать</b><small>Изменить текст сообщения</small></span></button>}<button onClick={()=>act("copy")} disabled={!message.body}>▣ <span><b>Копировать</b><small>Сохранить текст в буфер обмена</small></span></button><button onClick={()=>act("share")}>↗ <span><b>Поделиться</b><small>Отправить через другое приложение</small></span></button><button onClick={()=>act("forward")}>⇢ <span><b>Переслать</b><small>Выбрать другой чат Orbit</small></span></button><button className="danger" onClick={()=>act("delete")}>⌫ <span><b>Удалить</b><small>У себя или у всех участников</small></span></button></div></div>
+}
+
+function ForwardMessage({chats,close,forward}:{chats:Chat[];close:()=>void;forward:(chatId:string)=>void}){
+ return <div className="modal-back"><div className="compose-modal"><header><div><small>ПЕРЕСЛАТЬ</small><h2>Выберите чат</h2></div><button onClick={close}>×</button></header><div className="people-list">{chats.map(chat=><button className="person-row" key={chat.id} onClick={()=>forward(chat.id)}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="group"?"Группа":"Личный чат"}</small></span><b>⇢</b></button>)}</div></div></div>
+}
+
+function DeleteMessage({mine,group,close,remove}:{mine:boolean;group:boolean;close:()=>void;remove:(scope:"me"|"all")=>void}){
+ return <div className="modal-back"><div className="delete-modal"><small>УДАЛЕНИЕ СООБЩЕНИЯ</small><h2>Где удалить?</h2><p>Выберите, у кого сообщение должно исчезнуть.</p><button onClick={()=>remove("me")}><b>Удалить только у меня</b><small>У остальных сообщение останется</small></button>{mine&&<button className="danger" onClick={()=>remove("all")}><b>Удалить у всех</b><small>{group?"У всех членов группы или сообщества":"У вас и у собеседника"}</small></button>}<button className="cancel-delete" onClick={close}>Отмена</button></div></div>
 }
 
 function PrivacyModal({profile,close,save}:{profile:Profile;close:()=>void;save:(privacy:Privacy)=>Promise<void>}){

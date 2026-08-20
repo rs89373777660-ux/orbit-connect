@@ -22,7 +22,7 @@ export async function POST(request:Request){
   await ensureProfileIdentity(me.userId);
   const body=await request.json() as {
    name?:string;email?:string;birthYear?:number|null;handle?:string;status?:string;
-   socials?:Record<string,string>;syncContactsEnabled?:boolean;
+   socials?:Record<string,string>;syncContactsEnabled?:boolean;avatarPreset?:string|null;autoCorrectEnabled?:boolean;
    privacy?:{phone?:boolean;email?:boolean;status?:boolean;socials?:boolean;photo?:boolean}
   };
   const db=getDb();
@@ -39,6 +39,8 @@ export async function POST(request:Request){
   await db.update(users).set({
    name,email,handle,status:body.status===undefined?row.status:body.status.trim().slice(0,120)||null,
    birthYear:body.birthYear===undefined?row.birthYear:body.birthYear||null,socialsJson:socials,
+   avatarPreset:body.avatarPreset===undefined?row.avatarPreset:(body.avatarPreset||null),
+   autoCorrectEnabled:body.autoCorrectEnabled??row.autoCorrectEnabled,
    syncContactsEnabled:body.syncContactsEnabled??row.syncContactsEnabled,
    privacyPhone:body.privacy?.phone??row.privacyPhone,privacyEmail:body.privacy?.email??row.privacyEmail,
    privacyStatus:body.privacy?.status??row.privacyStatus,privacySocials:body.privacy?.socials??row.privacySocials,
