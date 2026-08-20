@@ -1,5 +1,5 @@
 "use client";
-import { CSSProperties, ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./chat-list.css";
 import "./theme-refresh.css";
 
@@ -26,6 +26,7 @@ function initials(name:string){return name.split(/\s+/).map(x=>x[0]).join("").sl
 function normalizePhone(value:string){const digits=value.replace(/\D/g,"");if(digits.length===10)return `7${digits}`;if(digits.length===11&&digits.startsWith("8"))return `7${digits.slice(1)}`;return digits.slice(-15)}
 async function phoneHash(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(normalizePhone(value)));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function compareVersions(left:string,right:string){const a=left.split(".").map(Number),b=right.split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const delta=(a[i]||0)-(b[i]||0);if(delta)return delta}return 0}
+function messagesEqual(left:Message[]|undefined,right:Message[]){return Boolean(left&&left.length===right.length&&right.every((message,index)=>{const old=left[index];return old.id===message.id&&old.body===message.body&&old.editedAt===message.editedAt&&old.deletedAt===message.deletedAt&&old.deliveryStatus===message.deliveryStatus&&old.fileName===message.fileName&&old.fileSize===message.fileSize&&old.replyTo===message.replyTo}))}
 const AVATAR_PRESETS=["🪐","🚀","🌙","⚡","🌿","🎧","☄️","✦","🦊","🐼","😎","🤖"];
 const THEMES=[{id:"lime",name:"Лайм",color:"#cfff3c"},{id:"cyan",name:"Космос",color:"#4eeaff"},{id:"violet",name:"Фиолет",color:"#b08cff"},{id:"coral",name:"Коралл",color:"#ff8075"},{id:"amber",name:"Янтарь",color:"#ffc94a"},{id:"ice",name:"Лёд",color:"#d8f4ff"}];
 const COUNTRIES=[
@@ -45,6 +46,8 @@ export default function MessengerApp(){
  const [notificationsEnabled,setNotificationsEnabled]=useState(true),[soundEnabled,setSoundEnabled]=useState(true),[updateInfo,setUpdateInfo]=useState<UpdateInfo|null>(null),[checkingUpdate,setCheckingUpdate]=useState(false);
  const [connectionOnline,setConnectionOnline]=useState(()=>typeof navigator==="undefined"?true:navigator.onLine);
  const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),photoInput=useRef<HTMLInputElement>(null),messageScrollRef=useRef<HTMLDivElement|null>(null),scrollRequest=useRef<"auto"|"smooth"|null>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>()),readQueue=useRef(new Set<string>()),readFlushTimer=useRef<number|undefined>(undefined);
+ const activeChatIdRef=useRef<string|null>(null),messageCache=useRef(new Map<string,Message[]>()),messageLoadToken=useRef(0),chatsLoading=useRef(false);
+ const messageById=useMemo(()=>new Map(messages.map(message=>[message.id,message])),[messages]);
  const [theme,setTheme]=useState(()=>typeof window!=="undefined"?localStorage.getItem("orbit_theme")||"lime":"lime");
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
 
@@ -65,6 +68,7 @@ export default function MessengerApp(){
   return()=>{viewport?.removeEventListener("resize",resize);document.removeEventListener("focusin",focus)};
  },[]);
  useEffect(()=>{const online=()=>setConnectionOnline(true),offline=()=>setConnectionOnline(false);window.addEventListener("online",online);window.addEventListener("offline",offline);return()=>{window.removeEventListener("online",online);window.removeEventListener("offline",offline)}},[]);
+ useEffect(()=>{activeChatIdRef.current=activeChat?.id||null},[activeChat?.id]);
  useEffect(()=>{const mode=scrollRequest.current,element=messageScrollRef.current;if(!mode||!element)return;scrollRequest.current=null;const scroll=()=>element.scrollTo({top:element.scrollHeight,behavior:mode}),frame=window.requestAnimationFrame(scroll),imageTimer=window.setTimeout(scroll,180),lateTimer=window.setTimeout(scroll,520);return()=>{window.cancelAnimationFrame(frame);window.clearTimeout(imageTimer);window.clearTimeout(lateTimer)}},[messages]);
  useEffect(()=>{
   const capacitor=(window as typeof window&{Capacitor?:{isNativePlatform?:()=>boolean}}).Capacitor;
@@ -82,7 +86,7 @@ export default function MessengerApp(){
   if(!ready||!profile?.registered)return;
   const poll=window.setInterval(()=>void loadChats(),3000);
   return()=>window.clearInterval(poll);
- },[ready,profile?.registered,activeChat?.id]);
+ },[ready,profile?.registered]);
  useEffect(()=>{
   if(!ready||!profile?.syncContactsEnabled)return;
   void syncPhonebook(true);
@@ -197,15 +201,22 @@ export default function MessengerApp(){
   if(r.ok)setSearchResults((await r.json()).results||[]);
  }
  async function loadChats(){
-  const r=await appFetch("/api/sync",{cache:"no-store"});if(!r.ok){setConnectionOnline(navigator.onLine&&r.status<500);return}
-  setConnectionOnline(true);const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean;pinnedAt?:number|null;systemPinned?:boolean;unreadCount?:number;online?:boolean;lastSeenAt?:number|null})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset,canPost:room.canPost,pinnedAt:room.pinnedAt,systemPinned:room.systemPinned,unreadCount:Math.min(999,room.unreadCount||0),online:room.online,lastSeenAt:room.lastSeenAt}));
-  setChats(list);
-  const current=activeChat?list.find(item=>item.id===activeChat.id):list[0];
-  if(current){setActiveChat(current);await loadMessages(current.id,data.user.userId)}
+  if(chatsLoading.current)return;chatsLoading.current=true;
+  try{
+   const r=await appFetch("/api/sync",{cache:"no-store"});if(!r.ok){setConnectionOnline(navigator.onLine&&r.status<500);return}
+   setConnectionOnline(true);const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean;pinnedAt?:number|null;systemPinned?:boolean;unreadCount?:number;online?:boolean;lastSeenAt?:number|null})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset,canPost:room.canPost,pinnedAt:room.pinnedAt,systemPinned:room.systemPinned,unreadCount:Math.min(999,room.unreadCount||0),online:room.online,lastSeenAt:room.lastSeenAt}));
+   setChats(list);
+   const selectedId=activeChatIdRef.current,current=(selectedId?list.find(item=>item.id===selectedId):null)||list[0];
+   if(current){
+    const switched=activeChatIdRef.current!==current.id;activeChatIdRef.current=current.id;setActiveChat(old=>old?.id===current.id&&old.online===current.online&&old.lastSeenAt===current.lastSeenAt&&old.unreadCount===current.unreadCount?old:current);
+    if(switched){const cached=messageCache.current.get(current.id);setMessages(cached||[]);scrollRequest.current="auto"}
+    await loadMessages(current.id,data.user.userId);
+   }
+  }finally{chatsLoading.current=false}
  }
  async function loadMessages(chatId:string,userId=profile?.id){
-  const r=await appFetch(`/api/sync?chatId=${encodeURIComponent(chatId)}`,{cache:"no-store"});
-  if(r.ok){const data=await r.json();setMessages(data.messages||[]);if(data.chat)setActiveChat(old=>old&&old.id===chatId?{...old,...data.chat}:old);if(!profile?.id&&data.user?.userId)setProfile(old=>old?{...old,id:data.user.userId}:old)}
+  const token=++messageLoadToken.current,r=await appFetch(`/api/sync?chatId=${encodeURIComponent(chatId)}`,{cache:"no-store"});
+  if(r.ok){const data=await r.json(),received:Message[]=data.messages||[],cached=messageCache.current.get(chatId),nextMessages=messagesEqual(cached,received)?cached!:received;messageCache.current.set(chatId,nextMessages);if(token!==messageLoadToken.current||activeChatIdRef.current!==chatId)return;setMessages(current=>current===nextMessages?current:nextMessages);if(data.chat)setActiveChat(old=>old&&old.id===chatId?{...old,...data.chat}:old);if(!profile?.id&&data.user?.userId)setProfile(old=>old?{...old,id:data.user.userId}:old)}
  }
  async function addContact(person:Profile){
   const r=await appFetch("/api/people",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"add-contact",targetUserId:person.id})});
@@ -222,7 +233,7 @@ export default function MessengerApp(){
   const r=await appFetch("/api/people",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"start-direct",targetUserId:person.id})});
   const data=await r.json().catch(()=>({}));setProgress("");
   if(!r.ok){notify(data.error||"Не удалось создать чат");return}
-  const chat={id:data.chat.id,name:person.name,kind:"direct",createdAt:data.chat.createdAt};scrollRequest.current="auto";setActiveChat(chat);setComposeOpen(false);setSection("chats");setMobileChatOpen(true);await loadChats();
+  const chat={id:data.chat.id,name:person.name,kind:"direct",createdAt:data.chat.createdAt};activeChatIdRef.current=chat.id;scrollRequest.current="auto";setActiveChat(chat);setMessages(messageCache.current.get(chat.id)||[]);setComposeOpen(false);setSection("chats");setMobileChatOpen(true);void loadMessages(chat.id);void loadChats();
  }
  async function send(){
   let text=draft.trim();if(!text||!activeChat||!profile)return;const originalText=text,chatId=activeChat.id,temporaryId=`pending-${Date.now()}-${Math.random()}`,editingOriginal=editingMessage?messages.find(message=>message.id===editingMessage.id):null;
@@ -337,7 +348,7 @@ export default function MessengerApp(){
   <aside className="orbit-nav"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><button className={section==="chats"?"active":""} onClick={()=>setSection("chats")}><i className="nav-glyph">▤</i><span>Чаты</span></button><button className={section==="contacts"?"active":""} onClick={()=>setSection("contacts")}><i className="nav-glyph">♙</i><span>Контакты</span></button><button className={section==="settings"?"active":""} onClick={()=>setSection("settings")}><i className="nav-glyph">⚙</i><span>Настройки</span></button></aside>
   <section className="orbit-list">
    <header><div><small>ORBIT / CONNECT <i className={`connection-mini${connectionOnline?" online":" offline"}`}>{connectionOnline?"● подключено":"● нет соединения"}</i></small><h1>{section==="chats"?"Сообщения":section==="contacts"?"Контакты":"Настройки"}</h1></div>{section!=="settings"&&<button className="compose" aria-label="Создать сообщение" onClick={()=>{setComposeOpen(true);setSearch("")}}>✎</button>}</header>
-   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><div key={chat.id} className={activeChat?.id===chat.id?"person-row selected chat-row":"person-row chat-row"}><button className="person-main" onClick={()=>{scrollRequest.current="auto";setSelectedMessageIds(new Set());setActiveChat(chat);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="channel"?"Канал новостей":chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>{Boolean(chat.unreadCount)&&<b className="unread-count" aria-label={`Непрочитанных сообщений: ${chat.unreadCount}`}>{Math.min(999,chat.unreadCount||0)}</b>}<button className={`chat-pin${chat.pinnedAt||chat.systemPinned?" active":""}`} aria-label={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} title={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} onClick={()=>void togglePin(chat)}>⌖</button></div>)}</div>}
+   {section==="chats"&&<div className="list-scroll"><button className="new-message" onClick={()=>setComposeOpen(true)}>✎ <span><b>Создать сообщение</b><small>Контакт, номер, имя или $никнейм</small></span></button>{chats.map(chat=><div key={chat.id} className={activeChat?.id===chat.id?"person-row selected chat-row":"person-row chat-row"}><button className="person-main" onClick={()=>{activeChatIdRef.current=chat.id;messageLoadToken.current++;scrollRequest.current="auto";setSelectedMessageIds(new Set());setActiveChat(chat);setMessages(messageCache.current.get(chat.id)||[]);setMobileChatOpen(true);void loadMessages(chat.id)}}><Avatar name={chat.name} url={chat.avatarUrl} preset={chat.avatarPreset}/><span><b>{chat.name}</b><small>{chat.kind==="channel"?"Канал новостей":chat.kind==="group"?"Группа":"Личный чат"}</small></span></button>{Boolean(chat.unreadCount)&&<b className="unread-count" aria-label={`Непрочитанных сообщений: ${chat.unreadCount}`}>{Math.min(999,chat.unreadCount||0)}</b>}<button className={`chat-pin${chat.pinnedAt||chat.systemPinned?" active":""}`} aria-label={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} title={chat.systemPinned?"Всегда закреплено":chat.pinnedAt?"Открепить чат":"Закрепить чат"} onClick={()=>void togglePin(chat)}>⌖</button></div>)}</div>}
    {section==="contacts"&&<div className="list-scroll"><div className="section-label">МОИ КОНТАКТЫ · {contacts.length}</div>{contacts.length===0&&<Empty text="Контактов пока нет. Нажмите «Создать сообщение» и найдите человека."/ >}{contacts.map(person=><div key={person.id} className="person-row"><button className="person-main" onClick={()=>void openProfile(person)}><Avatar name={person.name} url={person.avatarUrl} preset={person.avatarPreset}/><span><b>{person.name}</b><small>{person.handle} {person.online?"· онлайн":""}</small></span></button><button className="write write-icon" aria-label={`Написать ${person.name}`} title="Написать" onClick={()=>void openChat(person)}>✎</button></div>)}</div>}
    {section==="settings"&&profile&&<Settings profile={profile} setProfile={setProfile} saveProfile={saveProfile} toggleSync={toggleSync} syncing={syncing} syncNow={()=>syncPhonebook(false)} avatarInput={avatarInput} uploadAvatar={uploadAvatar} openPrivacy={()=>setPrivacyOpen(true)} openGallery={()=>void openGallery()} avatarGallery={avatarGallery} loadAvatarGallery={()=>void loadAvatarGallery()} avatarAction={(action,id)=>void avatarAction(action,id)} theme={theme} setTheme={value=>{setTheme(value);localStorage.setItem("orbit_theme",value)}} shareApp={()=>void shareApp()}/>}
    {section==="settings"&&<div className="settings-tools"><button aria-label="Проверить обновления" title="Проверить обновления" disabled={checkingUpdate} onClick={()=>void checkUpdates(true)}><span className="settings-tool-glyph">⟳</span></button><button aria-label="Настройки уведомлений" title="Настройки уведомлений" onClick={()=>setNotificationSettingsOpen(true)}><span className="settings-tool-glyph">♫</span></button></div>}
@@ -345,7 +356,7 @@ export default function MessengerApp(){
   <section className={mobileChatOpen?"orbit-chat mobile-open":"orbit-chat"}>
    {activeChat?<>
     {selectionMode?<div className="message-selection-bar"><button className="selection-close" aria-label="Отменить выбор" onClick={clearMessageSelection}>×</button><b className="selection-count">{selectedMessageIds.size}</b><span>выбрано</span><div><button onClick={()=>void copySelected()}><b>▣</b><small>Копировать</small></button><button onClick={forwardSelected}><b>⇢</b><small>Переслать</small></button><button onClick={()=>setBatchDeleteOpen(true)}><b>⌫</b><small>Удалить</small></button><button onClick={()=>void favoriteSelected()}><b>★</b><small>В избранное</small></button></div></div>:<header><button className="mobile-chat-back" onClick={()=>setMobileChatOpen(false)}>‹</button><Avatar name={activeChat.name} url={activeChat.avatarUrl} preset={activeChat.avatarPreset}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="direct"?(activeChat.online?"● в сети":activeChat.lastSeenAt?`не в сети · ${new Date(activeChat.lastSeenAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}`:"не в сети"):activeChat.kind==="channel"?"официальный канал":"группа"}</small></div><button onClick={()=>notify("Аудиозвонок запускается")}>☎</button><button onClick={()=>notify("Видеозвонок запускается")}>▣</button></header>}
-    <div ref={messageScrollRef} className={`message-scroll${selectionMode?" selecting":""}`}>{messages.map(message=><MessageBubble key={message.id} message={message} mine={message.senderId===profile?.id} reply={messages.find(item=>item.id===message.replyTo)} selectionMode={selectionMode} selected={selectedMessageIds.has(message.id)} menu={()=>setMessageMenu(message)} select={()=>selectMessage(message)} toggle={()=>toggleMessage(message)} answer={()=>setReplyingTo(message)} share={()=>void messageAction("share",message)} retry={()=>void retryMessage(message)} seen={()=>markMessageSeen(message.id)}/>)}</div>
+    <div ref={messageScrollRef} className={`message-scroll${selectionMode?" selecting":""}`}>{messages.map(message=><MessageBubble key={message.id} message={message} mine={message.senderId===profile?.id} reply={message.replyTo?messageById.get(message.replyTo):undefined} selectionMode={selectionMode} selected={selectedMessageIds.has(message.id)} menu={()=>setMessageMenu(message)} select={()=>selectMessage(message)} toggle={()=>toggleMessage(message)} answer={()=>setReplyingTo(message)} share={()=>void messageAction("share",message)} retry={()=>void retryMessage(message)} seen={()=>markMessageSeen(message.id)}/>)}</div>
     {editingMessage&&<div className="editing-bar"><span><b>Редактирование</b><small>{editingMessage.body}</small></span><button onClick={()=>{setEditingMessage(null);setDraft("")}}>×</button></div>}
     {replyingTo&&<div className="editing-bar"><span><b>Ответ на сообщение</b><small>{replyingTo.body||replyingTo.fileName}</small></span><button onClick={()=>setReplyingTo(null)}>×</button></div>}
     {activeChat.kind==="channel"&&!activeChat.canPost?<div className="channel-readonly">📡 Новости публикует только владелец канала</div>:<><div className="ai-row"><button className="tool-icon" aria-label="ИИ-помощник" disabled={aiWorking} onClick={()=>setAiMenuOpen(value=>!value)}>✦</button><button className="tool-icon" aria-label="Эмодзи и стикеры" onClick={()=>setEmojiOpen(value=>!value)}>☺</button>{aiMenuOpen&&<div className="ai-menu"><button disabled={aiWorking} onClick={()=>void ai("generate")}>✦ Написать</button><button disabled={!draft||aiWorking||Boolean(profile?.autoCorrectEnabled)} title={profile?.autoCorrectEnabled?"Исправление включено автоматически":""} onClick={()=>void ai("correct")}>✓ Исправить ошибки</button><button disabled={!draft||aiWorking} onClick={()=>void ai("emoji")}>☺ Расставить эмодзи</button></div>}{emojiOpen&&<EmojiPicker insert={emoji=>setDraft(value=>value+emoji)} sticker={url=>void sendSticker(url)}/>}</div>
