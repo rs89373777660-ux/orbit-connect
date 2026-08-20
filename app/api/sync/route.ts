@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMembers, chats, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
+import { appSessions, chatMembers, chats, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 
 async function identity(request:Request){
@@ -91,8 +91,7 @@ export async function GET(request:Request){
    const allRows=await db.select().from(messages).where(and(eq(messages.chatId,chatId),gt(messages.createdAt,after))).orderBy(asc(messages.createdAt)).limit(200);
    const allIds=allRows.map(item=>item.id);
    const hidden=allIds.length?await db.select({messageId:messageHidden.messageId}).from(messageHidden).where(and(eq(messageHidden.userId,user.userId),inArray(messageHidden.messageId,allIds))):[];
-   const hiddenIds=new Set(hidden.map(item=>item.messageId)),rows=allRows.filter(item=>!hiddenIds.has(item.id)),ids=rows.map(item=>item.id),now=Date.now();
-   if(ids.length)await db.update(messageReceipts).set({deliveredAt:now,readAt:now}).where(and(eq(messageReceipts.userId,user.userId),inArray(messageReceipts.messageId,ids)));
+   const hiddenIds=new Set(hidden.map(item=>item.messageId)),rows=allRows.filter(item=>!hiddenIds.has(item.id)),ids=rows.map(item=>item.id);
    const receiptRows=ids.length?await db.select().from(messageReceipts).where(inArray(messageReceipts.messageId,ids)):[];
    const rs=ids.length?await db.select().from(reactions).where(inArray(reactions.messageId,ids)):[];
    const members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,chatId));
@@ -117,7 +116,8 @@ export async function GET(request:Request){
    const other=roomMembers.find(item=>item.userId!==user.userId);
    if(!other)return {...base,avatarPreset:"⭐",systemPinned:true};
    const [person]=await db.select({id:users.id,name:users.name,avatarData:users.avatarData,avatarPreset:users.avatarPreset,privacyPhoto:users.privacyPhoto}).from(users).where(eq(users.id,other.userId)).limit(1);
-   return person?{...base,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null}:base;
+   const [session]=await db.select({lastSeenAt:appSessions.lastSeenAt}).from(appSessions).where(eq(appSessions.userId,other.userId)).orderBy(desc(appSessions.lastSeenAt)).limit(1),lastSeenAt=session?.lastSeenAt||null;
+   return person?{...base,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null,lastSeenAt,online:Boolean(lastSeenAt&&lastSeenAt>Date.now()-15_000)}:base;
   }));
   const chatList=chatListUnsorted.sort((a,b)=>{
    const systemRank=(item:typeof a)=>item.id===COMMUNITY_ID?2:item.systemPinned?1:0,diff=systemRank(b)-systemRank(a);if(diff)return diff;

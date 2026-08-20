@@ -69,6 +69,8 @@
 .registration-card .phone-country-field:focus-within{border-color:#cfff3c;box-shadow:0 0 0 3px #cfff3c1f}
 .registration-card .phone-country-field>b{height:100%;display:flex;align-items:center;padding:0 15px;border-right:1px solid #3a4434;color:#cfff3c;font-size:16px;white-space:nowrap}
 .registration-card .phone-country-field>input{height:100%;min-width:0;flex:1;border:0!important;background:transparent;padding:0 13px;box-shadow:none!important}
+.registration-card .auth-message{margin:10px 0;padding:11px 13px;border:1px solid #cfff3c66;border-radius:16px;background:#cfff3c12;color:#cfff3c;font-size:11px;line-height:1.4}
+.registration-card .auth-message.error{border-color:#ff817888;background:#ff817812;color:#ff9b94}
 .orbit-v4 .avatar-editor{overscroll-behavior:contain}
 .orbit-v4 .avatar-crop{position:relative;width:min(360px,80vw);aspect-ratio:1/1;height:auto;border-radius:28px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;isolation:isolate}
 .orbit-v4 .avatar-crop:active{cursor:grabbing}
@@ -80,3 +82,41 @@
 .orbit-v4 .avatar-gesture-hint{text-align:center;color:#a5ad9f;font-size:10px;line-height:1.5;margin:10px 0 6px}
 .orbit-v4 .avatar-gesture-hint b{color:var(--accent)}
 .orbit-v4 .avatar-reset{display:block;margin:0 auto 10px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent);padding:9px 15px;font-size:10px}
+.orbit-v4 .connection-mini{font-style:normal;font-size:8px;letter-spacing:.02em;margin-left:6px;color:#899384;text-transform:none;white-space:nowrap}
+.orbit-v4 .connection-mini.online{color:var(--accent)}
+.orbit-v4 .connection-mini.offline{color:#ff8178}
+.orbit-v4 .message-selection-bar{height:70px;flex:0 0 70px;display:flex;align-items:center;gap:8px;padding:7px 14px;background:linear-gradient(90deg,var(--accent-soft),transparent),#0c100d;border-bottom:1px solid var(--accent-line)}
+.orbit-v4 .message-selection-bar>button{width:38px;height:38px;border:1px solid var(--accent-line);background:#151c14;color:#fff;font-size:25px}
+.orbit-v4 .selection-count{width:31px;height:31px;display:grid;place-items:center;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:13px}
+.orbit-v4 .message-selection-bar>span{color:#9ba395;font-size:9px}
+.orbit-v4 .message-selection-bar>div{display:flex;justify-content:flex-end;gap:4px;min-width:0;flex:1}
+.orbit-v4 .message-selection-bar>div button{min-width:58px;border:0;background:transparent;color:#eef1e9;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 6px}
+.orbit-v4 .message-selection-bar>div button b{color:var(--accent);font-size:20px;line-height:1}
+.orbit-v4 .message-selection-bar>div button small{font-size:7px;white-space:nowrap}
+.orbit-v4 .message-choice-row{width:100%;display:flex;align-items:center;gap:9px;justify-content:flex-start;min-height:42px}
+.orbit-v4 .message-choice-row.mine{justify-content:flex-end}
+.orbit-v4 .message-choice-row.selected{background:linear-gradient(90deg,transparent,var(--accent-soft),transparent);border-radius:24px}
+.orbit-v4 .message-select-check{width:27px;height:27px;flex:0 0 27px;border:2px solid #657060!important;border-radius:50%!important;background:#0d120d!important;color:var(--accent-ink)!important;display:grid;place-items:center;padding:0;font-size:15px;font-weight:900;order:0}
+.orbit-v4 .message-select-check.checked{border-color:var(--accent)!important;background:var(--accent)!important;box-shadow:0 0 18px var(--accent-glow)}
+.orbit-v4 .message-swipe-shell{position:relative;width:max-content;max-width:min(76%,760px);overflow:visible}
+.orbit-v4 .message-swipe-shell>.msg{max-width:100%;margin-left:0;margin-right:0;position:relative;z-index:2;transition:transform .26s cubic-bezier(.2,.9,.25,1),box-shadow .2s}
+.orbit-v4 .message-swipe-shell>.msg.dragging{transition:none;box-shadow:0 12px 34px #0009}
+.orbit-v4 .swipe-cue{position:absolute;z-index:1;top:50%;transform:translateY(-50%);height:34px;display:flex;align-items:center;gap:5px;color:var(--accent);font-size:20px;font-weight:900;transition:opacity .08s;white-space:nowrap}
+.orbit-v4 .swipe-cue small{font-size:8px;text-transform:uppercase;letter-spacing:.04em}
+.orbit-v4 .reply-cue{left:-2px}
+.orbit-v4 .share-cue{right:-2px}
+.orbit-v4 .message-scroll.selecting{padding-left:clamp(10px,3vw,35px);padding-right:clamp(10px,3vw,35px)}
+.orbit-v4 .msg.failed{background:#331815!important;color:#ffd7d3!important;border:1px solid #ff8178!important;box-shadow:0 8px 28px #ff51472b}
+.orbit-v4 .delivery.failed{color:#ff9b94!important;opacity:1}
+.orbit-v4 .message-retry{width:36px;height:36px;flex:0 0 36px;border:1px solid #ff8178!important;border-radius:50%!important;background:#2a1311!important;color:#ff9b94!important;display:grid;place-items:center;padding:0;font-size:23px;font-weight:900;box-shadow:0 0 18px #ff514733;animation:retry-appear .25s ease both}
+.orbit-v4 .message-retry:active{transform:rotate(-45deg) scale(.92)}
+@keyframes retry-appear{from{transform:scale(.5) rotate(-90deg);opacity:0}to{transform:scale(1);opacity:1}}
+@media(max-width:800px){
+ .orbit-v4 .message-selection-bar{padding:5px 7px}
+ .orbit-v4 .message-selection-bar>span{display:none}
+ .orbit-v4 .message-selection-bar>div{gap:0}
+ .orbit-v4 .message-selection-bar>div button{min-width:51px;padding:3px}
+ .orbit-v4 .message-selection-bar>div button small{font-size:6px}
+ .orbit-v4 .message-swipe-shell{max-width:82%}
+ .orbit-v4 .message-scroll.selecting .message-swipe-shell{max-width:calc(84% - 36px)}
+}

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatMembers, chats, messageHidden, messageReceipts, messages, notifications } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
@@ -11,8 +11,16 @@ export async function POST(request:Request){
  try{
   const user=await getAppUser(request);
   if(!user)return Response.json({error:"Требуется вход"},{status:401});
-  const body=await request.json() as {action?:string;chatId?:string;targetChatId?:string;messageId?:string;body?:string;replyTo?:string;scope?:"me"|"all";kind?:"text"|"sticker"};
+  const body=await request.json() as {action?:string;chatId?:string;targetChatId?:string;messageId?:string;messageIds?:string[];body?:string;replyTo?:string;scope?:"me"|"all";kind?:"text"|"sticker"};
   const action=body.action||"send",db=getDb();
+
+  if(action==="mark-read"){
+   const ids=[...new Set((body.messageIds||[]).filter(Boolean))].slice(0,200);
+   if(!body.chatId||!ids.length||!await membership(body.chatId,user.userId))return Response.json({error:"Нет доступа к сообщениям"},{status:403});
+   const roomMessages=await db.select({id:messages.id}).from(messages).where(and(eq(messages.chatId,body.chatId),inArray(messages.id,ids))),allowed=roomMessages.map(item=>item.id);
+   if(allowed.length)await db.update(messageReceipts).set({readAt:Date.now()}).where(and(eq(messageReceipts.userId,user.userId),inArray(messageReceipts.messageId,allowed)));
+   return Response.json({ok:true,read:allowed.length});
+  }
 
   if(action==="edit"){
    const text=body.body?.trim().slice(0,10000)||"";
