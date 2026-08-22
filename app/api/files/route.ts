@@ -8,13 +8,14 @@ async function allowed(chatId:string,userId:string){return (await getDb().select
 
 export async function POST(request:Request){
  const user=await getAppUser(request);if(!user)return Response.json({error:"Требуется вход"},{status:401});
- const form=await request.formData(),file=form.get("file"),chatId=String(form.get("chatId")||"");
+ const form=await request.formData(),file=form.get("file"),chatId=String(form.get("chatId")||""),caption=String(form.get("caption")||"").trim().slice(0,2000);
  if(!(file instanceof File)||!chatId)return Response.json({error:"Нужны файл и chatId"},{status:400});
  if(file.size>100*1024*1024)return Response.json({error:"Максимум 100 МБ"},{status:413});
  if(!await allowed(chatId,user.userId))return Response.json({error:"Нет доступа"},{status:403});
  const safeName=(file.name||"file").replace(/[^a-zA-Z0-9._-]/g,"_").slice(-120),key=`${chatId}/${crypto.randomUUID()}/${safeName}`;
- await env.FILES.put(key,file.stream(),{httpMetadata:{contentType:file.type||"application/octet-stream"}});
- const now=Date.now(),photo=file.type.startsWith("image/"),row={id:crypto.randomUUID(),chatId,senderId:user.userId,body:null,kind:(photo?"photo":"file") as "photo"|"file",fileKey:key,fileName:file.name.slice(0,240),fileSize:file.size,fileMime:file.type||"application/octet-stream",createdAt:now};
+ const bytes=await file.arrayBuffer();
+ await env.FILES.put(key,bytes,{httpMetadata:{contentType:file.type||"application/octet-stream"}});
+ const now=Date.now(),photo=file.type.startsWith("image/"),row={id:crypto.randomUUID(),chatId,senderId:user.userId,body:caption||null,kind:(photo?"photo":"file") as "photo"|"file",fileKey:key,fileName:file.name.slice(0,240),fileSize:file.size,fileMime:file.type||"application/octet-stream",createdAt:now};
  const db=getDb(),members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,chatId)),recipients=members.filter(item=>item.userId!==user.userId);
  await db.batch([db.insert(messages).values(row),...recipients.map(item=>db.insert(messageReceipts).values({messageId:row.id,userId:item.userId,deliveredAt:now})),...recipients.map(item=>db.insert(notifications).values({id:crypto.randomUUID(),userId:item.userId,actorId:user.userId,entityId:chatId,kind:photo?"photo":"file",body:`${user.displayName}: ${photo?"фотография":"файл"} ${file.name.slice(0,100)}`,createdAt:now}))]);
  return Response.json({message:row},{status:201});

@@ -16,6 +16,8 @@ type PhoneEntry={name:string;phone:string};
 type AppNotification={id:string;kind:string;body:string;entityId?:string|null;readAt?:number|null;createdAt:number};
 type UpdateInfo={build:string;title:string;notes:string[];releasedAt:string;checkIntervalMs:number;apk:{version:string;url:string;sha256:string};nativeUpdate?:boolean};
 type AvatarEditState={dataUrl:string;zoom:number;x:number;y:number;enhance:boolean};
+type RichAttachmentKind="poll"|"checklist"|"contact";
+type PendingAttachment={file:File;kind:"photo"|"file";previewUrl?:string};
 
 function appFetch(input:RequestInfo|URL,init:RequestInit={}){
  const headers=new Headers(init.headers),token=localStorage.getItem("orbit_session");
@@ -40,13 +42,13 @@ export default function MessengerApp(){
  const [contacts,setContacts]=useState<Profile[]>([]),[searchResults,setSearchResults]=useState<Profile[]>([]);
  const [chats,setChats]=useState<Chat[]>([]),[activeChat,setActiveChat]=useState<Chat|null>(null),[messages,setMessages]=useState<Message[]>([]);
  const [draft,setDraft]=useState(""),[search,setSearch]=useState(""),[composeOpen,setComposeOpen]=useState(false),[profileOpen,setProfileOpen]=useState<Profile|null>(null),[mobileChatOpen,setMobileChatOpen]=useState(false);
- const [messageMenu,setMessageMenu]=useState<Message|null>(null),[editingMessage,setEditingMessage]=useState<Message|null>(null),[replyingTo,setReplyingTo]=useState<Message|null>(null),[deleteMessage,setDeleteMessage]=useState<Message|null>(null),[forwardMessages,setForwardMessages]=useState<Message[]>([]),[selectedMessageIds,setSelectedMessageIds]=useState<Set<string>>(()=>new Set()),[batchDeleteOpen,setBatchDeleteOpen]=useState(false),[aiMenuOpen,setAiMenuOpen]=useState(false),[emojiOpen,setEmojiOpen]=useState(false),[attachmentOpen,setAttachmentOpen]=useState(false);
+ const [messageMenu,setMessageMenu]=useState<Message|null>(null),[editingMessage,setEditingMessage]=useState<Message|null>(null),[replyingTo,setReplyingTo]=useState<Message|null>(null),[deleteMessage,setDeleteMessage]=useState<Message|null>(null),[forwardMessages,setForwardMessages]=useState<Message[]>([]),[selectedMessageIds,setSelectedMessageIds]=useState<Set<string>>(()=>new Set()),[batchDeleteOpen,setBatchDeleteOpen]=useState(false),[aiMenuOpen,setAiMenuOpen]=useState(false),[emojiOpen,setEmojiOpen]=useState(false),[attachmentOpen,setAttachmentOpen]=useState(false),[richAttachment,setRichAttachment]=useState<RichAttachmentKind|null>(null),[pendingAttachment,setPendingAttachment]=useState<PendingAttachment|null>(null),[uploading,setUploading]=useState(false);
  const [galleryOpen,setGalleryOpen]=useState(false),[galleryItems,setGalleryItems]=useState<Array<{id:string;kind:string;fileName?:string;url:string}>>([]),[avatarEditor,setAvatarEditor]=useState<AvatarEditState|null>(null),[avatarGallery,setAvatarGallery]=useState<Array<{id:string;url:string;label:string}>>([]);
  const [privacyOpen,setPrivacyOpen]=useState(false),[notificationSettingsOpen,setNotificationSettingsOpen]=useState(false),[toast,setToast]=useState(""),[syncing,setSyncing]=useState(false),[aiWorking,setAiWorking]=useState(false);
  const [notificationsEnabled,setNotificationsEnabled]=useState(true),[soundEnabled,setSoundEnabled]=useState(true),[updateInfo,setUpdateInfo]=useState<UpdateInfo|null>(null),[checkingUpdate,setCheckingUpdate]=useState(false);
  const [connectionOnline,setConnectionOnline]=useState(()=>typeof navigator==="undefined"?true:navigator.onLine);
  const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),photoInput=useRef<HTMLInputElement>(null),messageScrollRef=useRef<HTMLDivElement|null>(null),scrollRequest=useRef<"auto"|"smooth"|null>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>()),readQueue=useRef(new Set<string>()),readFlushTimer=useRef<number|undefined>(undefined);
- const activeChatIdRef=useRef<string|null>(null),messageCache=useRef(new Map<string,Message[]>()),messageLoadToken=useRef(0),chatsLoading=useRef(false);
+ const activeChatIdRef=useRef<string|null>(null),messageCache=useRef(new Map<string,Message[]>()),messageLoadToken=useRef(0),chatsLoading=useRef(false),chatsRef=useRef<Chat[]>([]),pendingOpenChatId=useRef<string|null>(null);
  const messageById=useMemo(()=>new Map(messages.map(message=>[message.id,message])),[messages]);
  const [theme,setTheme]=useState(()=>typeof window!=="undefined"?localStorage.getItem("orbit_theme")||"lime":"lime");
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
@@ -69,6 +71,7 @@ export default function MessengerApp(){
  },[]);
  useEffect(()=>{const online=()=>setConnectionOnline(true),offline=()=>setConnectionOnline(false);window.addEventListener("online",online);window.addEventListener("offline",offline);return()=>{window.removeEventListener("online",online);window.removeEventListener("offline",offline)}},[]);
  useEffect(()=>{activeChatIdRef.current=activeChat?.id||null},[activeChat?.id]);
+ useEffect(()=>{chatsRef.current=chats},[chats]);
  useEffect(()=>{const mode=scrollRequest.current,element=messageScrollRef.current;if(!mode||!element)return;scrollRequest.current=null;const scroll=()=>element.scrollTo({top:element.scrollHeight,behavior:mode}),frame=window.requestAnimationFrame(scroll),imageTimer=window.setTimeout(scroll,180),lateTimer=window.setTimeout(scroll,520);return()=>{window.cancelAnimationFrame(frame);window.clearTimeout(imageTimer);window.clearTimeout(lateTimer)}},[messages]);
  useEffect(()=>{
   const capacitor=(window as typeof window&{Capacitor?:{isNativePlatform?:()=>boolean}}).Capacitor;
@@ -79,9 +82,12 @@ export default function MessengerApp(){
    setComposeOpen(false);setProfileOpen(null);setPrivacyOpen(false);setNotificationSettingsOpen(false);setUpdateInfo(null);setMessageMenu(null);setForwardMessages([]);setSelectedMessageIds(new Set());setBatchDeleteOpen(false);setDeleteMessage(null);setGalleryOpen(false);setAvatarEditor(null);setMobileChatOpen(false);setSection("chats");
    history.pushState({orbitMain:true},"",location.href);
   };
-  window.addEventListener("popstate",backToMain);
-  return()=>window.removeEventListener("popstate",backToMain);
+  window.addEventListener("popstate",backToMain);window.addEventListener("orbit:back",backToMain as EventListener);
+  return()=>{window.removeEventListener("popstate",backToMain);window.removeEventListener("orbit:back",backToMain as EventListener)};
  },[]);
+ useEffect(()=>{
+  if(!ready)return;const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{getLaunchAction?:()=>Promise<{chatId?:string}>;addListener?:(name:string,callback:(value:{chatId?:string})=>void)=>Promise<{remove:()=>Promise<void>}>}}}}).Capacitor?.Plugins?.PhoneContacts;if(!native)return;let listener:{remove:()=>Promise<void>}|undefined,active=true;const open=(value:{chatId?:string})=>{if(value.chatId)openChatById(value.chatId)};void native.getLaunchAction?.().then(value=>{if(active)open(value)}).catch(()=>undefined);void native.addListener?.("notificationAction",open).then(value=>{listener=value});return()=>{active=false;void listener?.remove()}
+ },[ready]);
  useEffect(()=>{
   if(!ready||!profile?.registered)return;
   const poll=window.setInterval(()=>void loadChats(),3000);
@@ -142,8 +148,8 @@ export default function MessengerApp(){
   notify(latest.body);
   if(isMessage&&soundEnabled){const audio=plumAudio.current;if(audio){audio.currentTime=0;audio.volume=.85;void audio.play().catch(()=>undefined)}}
   if(isMessage){
-   const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{showNotification:(value:{title:string;body:string})=>Promise<void>}}}}).Capacitor?.Plugins?.PhoneContacts;
-   if(native)await native.showNotification({title:"Orbit Connect",body:latest.body}).catch(()=>undefined);
+   const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{showNotification:(value:{title:string;body:string;chatId?:string;token?:string})=>Promise<void>}}}}).Capacitor?.Plugins?.PhoneContacts;
+   if(native)await native.showNotification({title:"Orbit Connect",body:latest.body,chatId:latest.entityId||"",token:localStorage.getItem("orbit_session")||""}).catch(()=>undefined);
    else if("Notification" in window&&Notification.permission==="granted"&&document.hidden)new Notification("Orbit Connect",{body:latest.body,icon:"/orbit-connect-icon-192.png"});
   }
   await appFetch("/api/people",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"read-notifications"})});
@@ -163,7 +169,8 @@ export default function MessengerApp(){
    const installedVersion=appInfo?.versionName||(isNative?"1.1.0":null);
    const nativeUpdate=Boolean(installedVersion&&compareVersions(installedVersion,data.apk.version)<0);
    localStorage.setItem("orbit_update_checked_at",String(Date.now()));
-   if(data.updateAvailable||nativeUpdate)setUpdateInfo({...data,nativeUpdate});
+   const dismissed=localStorage.getItem("orbit_update_dismissed");
+   if((data.updateAvailable||nativeUpdate)&&(manual||dismissed!==data.build))setUpdateInfo({...data,nativeUpdate});
    else if(manual)notify("Установлена последняя версия");
   }catch{if(manual)notify("Не удалось проверить обновления")}
   finally{setCheckingUpdate(false)}
@@ -200,14 +207,18 @@ export default function MessengerApp(){
   const r=await appFetch(`/api/people?q=${encodeURIComponent(value)}`,{cache:"no-store"});
   if(r.ok)setSearchResults((await r.json()).results||[]);
  }
+ function openChatById(chatId:string){
+  const chat=chatsRef.current.find(item=>item.id===chatId);if(!chat){pendingOpenChatId.current=chatId;void loadChats();return}pendingOpenChatId.current=null;activeChatIdRef.current=chat.id;messageLoadToken.current++;scrollRequest.current="auto";setSelectedMessageIds(new Set());setActiveChat(chat);setMessages(messageCache.current.get(chat.id)||[]);setSection("chats");setMobileChatOpen(true);void loadMessages(chat.id)
+ }
  async function loadChats(){
   if(chatsLoading.current)return;chatsLoading.current=true;
   try{
    const r=await appFetch("/api/sync",{cache:"no-store"});if(!r.ok){setConnectionOnline(navigator.onLine&&r.status<500);return}
    setConnectionOnline(true);const data=await r.json();const list:Chat[]=(data.chatList||[]).map((room:{id:string;title:string;kind:string;createdAt:number;avatarUrl?:string|null;avatarPreset?:string|null;canPost?:boolean;pinnedAt?:number|null;systemPinned?:boolean;unreadCount?:number;online?:boolean;lastSeenAt?:number|null})=>({id:room.id,name:room.title,kind:room.kind,createdAt:room.createdAt,avatarUrl:room.avatarUrl,avatarPreset:room.avatarPreset,canPost:room.canPost,pinnedAt:room.pinnedAt,systemPinned:room.systemPinned,unreadCount:Math.min(999,room.unreadCount||0),online:room.online,lastSeenAt:room.lastSeenAt}));
    setChats(list);
-   const selectedId=activeChatIdRef.current,current=(selectedId?list.find(item=>item.id===selectedId):null)||list[0];
+   const requestedId=pendingOpenChatId.current,selectedId=requestedId||activeChatIdRef.current,current=(selectedId?list.find(item=>item.id===selectedId):null)||list[0];
    if(current){
+    if(requestedId&&current.id===requestedId){pendingOpenChatId.current=null;setSection("chats");setMobileChatOpen(true)}
     const switched=activeChatIdRef.current!==current.id;activeChatIdRef.current=current.id;setActiveChat(old=>old?.id===current.id&&old.online===current.online&&old.lastSeenAt===current.lastSeenAt&&old.unreadCount===current.unreadCount?old:current);
     if(switched){const cached=messageCache.current.get(current.id);setMessages(cached||[]);scrollRequest.current="auto"}
     await loadMessages(current.id,data.user.userId);
@@ -251,11 +262,27 @@ export default function MessengerApp(){
  function markMessageSeen(messageId:string){
   if(messageId.startsWith("pending-"))return;readQueue.current.add(messageId);if(readFlushTimer.current)window.clearTimeout(readFlushTimer.current);const chatId=activeChat?.id;readFlushTimer.current=window.setTimeout(async()=>{const messageIds=[...readQueue.current];readQueue.current.clear();if(!chatId||!messageIds.length)return;await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"mark-read",chatId,messageIds})}).catch(()=>undefined)},220)
  }
- async function attach(event:ChangeEvent<HTMLInputElement>){
-  const file=event.target.files?.[0];if(!file||!activeChat)return;setProgress("ЗАГРУЖАЕМ ФАЙЛ…");
-  const form=new FormData();form.set("file",file);form.set("chatId",activeChat.id);
+ function clearPendingAttachment(){setPendingAttachment(current=>{if(current?.previewUrl)URL.revokeObjectURL(current.previewUrl);return null})}
+ function prepareAttachment(event:ChangeEvent<HTMLInputElement>){
+  const file=event.target.files?.[0];event.target.value="";if(!file)return;clearPendingAttachment();setPendingAttachment({file,kind:file.type.startsWith("image/")?"photo":"file",previewUrl:file.type.startsWith("image/")?URL.createObjectURL(file):undefined});setAttachmentOpen(false)
+ }
+ async function sendPendingAttachment(){
+  if(!pendingAttachment||!activeChat)return;const file=pendingAttachment.file;setProgress("ЗАГРУЖАЕМ ФАЙЛ…");setUploading(true);
+  const form=new FormData();form.set("file",file);form.set("chatId",activeChat.id);form.set("caption",draft.trim());
   const headers=new Headers(),token=localStorage.getItem("orbit_session");if(token)headers.set("authorization",`Bearer ${token}`);
-  const r=await fetch("/api/files",{method:"POST",headers,body:form});setProgress("");setAttachmentOpen(false);if(r.ok){scrollRequest.current="smooth";await loadMessages(activeChat.id)}else notify((await r.json().catch(()=>({}))).error||"Файл не отправлен");event.target.value="";
+  try{const r=await fetch("/api/files",{method:"POST",headers,body:form});if(r.ok){setDraft("");clearPendingAttachment();scrollRequest.current="smooth";await loadMessages(activeChat.id);notify("Вложение отправлено")}else notify((await r.json().catch(()=>({}))).error||"Файл не отправлен")}catch{notify("Не удалось загрузить файл. Проверьте соединение")}finally{setProgress("");setUploading(false)}
+ }
+ async function sendComposer(){if(pendingAttachment)await sendPendingAttachment();else await send()}
+ async function sendStructured(kind:"location"|RichAttachmentKind,payload:unknown){
+  if(!activeChat)return false;const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId:activeChat.id,kind,body:JSON.stringify(payload)})}),data=await r.json().catch(()=>({}));
+  if(!r.ok){notify(data.error||"Вложение не отправлено");return false}setAttachmentOpen(false);setRichAttachment(null);scrollRequest.current="smooth";await loadMessages(activeChat.id);return true
+ }
+ async function attachLocation(){
+  setAttachmentOpen(false);if(!navigator.geolocation){notify("Геопозиция недоступна на этом устройстве");return}
+  notify("Определяем геопозицию…");navigator.geolocation.getCurrentPosition(position=>void sendStructured("location",{latitude:position.coords.latitude,longitude:position.coords.longitude,accuracy:Math.round(position.coords.accuracy),label:"Моя геопозиция"}),error=>notify(error.code===1?"Разрешите приложению доступ к геопозиции":"Не удалось определить геопозицию"),{enableHighAccuracy:true,timeout:12000,maximumAge:30000})
+ }
+ async function structuredAction(message:Message,action:"poll-vote"|"checklist-toggle",index:number){
+  const body=action==="poll-vote"?{action,messageId:message.id,optionIndex:index}:{action,messageId:message.id,itemIndex:index};const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});if(!r.ok){notify("Не удалось обновить вложение");return}if(activeChat)await loadMessages(activeChat.id)
  }
  async function sendSticker(url:string){if(!activeChat)return;scrollRequest.current="smooth";await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId:activeChat.id,body:url,kind:"sticker"})});setEmojiOpen(false);await loadMessages(activeChat.id)}
  async function openGallery(){const r=await appFetch("/api/files?gallery=1",{cache:"no-store"});if(r.ok)setGalleryItems((await r.json()).items||[]);setGalleryOpen(true)}
@@ -356,17 +383,18 @@ export default function MessengerApp(){
   <section className={mobileChatOpen?"orbit-chat mobile-open":"orbit-chat"}>
    {activeChat?<>
     {selectionMode?<div className="message-selection-bar"><button className="selection-close" aria-label="Отменить выбор" onClick={clearMessageSelection}>×</button><b className="selection-count">{selectedMessageIds.size}</b><span>выбрано</span><div><button onClick={()=>void copySelected()}><b>▣</b><small>Копировать</small></button><button onClick={forwardSelected}><b>⇢</b><small>Переслать</small></button><button onClick={()=>setBatchDeleteOpen(true)}><b>⌫</b><small>Удалить</small></button><button onClick={()=>void favoriteSelected()}><b>★</b><small>В избранное</small></button></div></div>:<header><button className="mobile-chat-back" onClick={()=>setMobileChatOpen(false)}>‹</button><Avatar name={activeChat.name} url={activeChat.avatarUrl} preset={activeChat.avatarPreset}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="direct"?(activeChat.online?"● в сети":activeChat.lastSeenAt?`не в сети · ${new Date(activeChat.lastSeenAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}`:"не в сети"):activeChat.kind==="channel"?"официальный канал":"группа"}</small></div><button onClick={()=>notify("Аудиозвонок запускается")}>☎</button><button onClick={()=>notify("Видеозвонок запускается")}>▣</button></header>}
-    <div ref={messageScrollRef} className={`message-scroll${selectionMode?" selecting":""}`}>{messages.map(message=><MessageBubble key={message.id} message={message} mine={message.senderId===profile?.id} reply={message.replyTo?messageById.get(message.replyTo):undefined} selectionMode={selectionMode} selected={selectedMessageIds.has(message.id)} menu={()=>setMessageMenu(message)} select={()=>selectMessage(message)} toggle={()=>toggleMessage(message)} answer={()=>setReplyingTo(message)} share={()=>void messageAction("share",message)} retry={()=>void retryMessage(message)} seen={()=>markMessageSeen(message.id)}/>)}</div>
+    <div ref={messageScrollRef} className={`message-scroll${selectionMode?" selecting":""}`}>{messages.map(message=><MessageBubble key={message.id} message={message} mine={message.senderId===profile?.id} currentUserId={profile?.id||""} reply={message.replyTo?messageById.get(message.replyTo):undefined} selectionMode={selectionMode} selected={selectedMessageIds.has(message.id)} menu={()=>setMessageMenu(message)} select={()=>selectMessage(message)} toggle={()=>toggleMessage(message)} answer={()=>setReplyingTo(message)} share={()=>void messageAction("share",message)} retry={()=>void retryMessage(message)} seen={()=>markMessageSeen(message.id)} structured={(action,index)=>void structuredAction(message,action,index)}/>)}</div>
     {editingMessage&&<div className="editing-bar"><span><b>Редактирование</b><small>{editingMessage.body}</small></span><button onClick={()=>{setEditingMessage(null);setDraft("")}}>×</button></div>}
     {replyingTo&&<div className="editing-bar"><span><b>Ответ на сообщение</b><small>{replyingTo.body||replyingTo.fileName}</small></span><button onClick={()=>setReplyingTo(null)}>×</button></div>}
     {activeChat.kind==="channel"&&!activeChat.canPost?<div className="channel-readonly">📡 Новости публикует только владелец канала</div>:<><div className="ai-row"><button className="tool-icon" aria-label="ИИ-помощник" disabled={aiWorking} onClick={()=>setAiMenuOpen(value=>!value)}>✦</button><button className="tool-icon" aria-label="Эмодзи и стикеры" onClick={()=>setEmojiOpen(value=>!value)}>☺</button>{aiMenuOpen&&<div className="ai-menu"><button disabled={aiWorking} onClick={()=>void ai("generate")}>✦ Написать</button><button disabled={!draft||aiWorking||Boolean(profile?.autoCorrectEnabled)} title={profile?.autoCorrectEnabled?"Исправление включено автоматически":""} onClick={()=>void ai("correct")}>✓ Исправить ошибки</button><button disabled={!draft||aiWorking} onClick={()=>void ai("emoji")}>☺ Расставить эмодзи</button></div>}{emojiOpen&&<EmojiPicker insert={emoji=>setDraft(value=>value+emoji)} sticker={url=>void sendSticker(url)}/>}</div>
-    <footer><button onClick={()=>setAttachmentOpen(value=>!value)}>＋</button>{attachmentOpen&&<div className="attachment-menu"><button onClick={()=>photoInput.current?.click()}>▧ Фото из галереи</button><button onClick={()=>fileInput.current?.click()}>⌑ Файл с устройства</button></div>}<input ref={photoInput} type="file" accept="image/*" hidden onChange={attach}/><input ref={fileInput} type="file" hidden onChange={attach}/><textarea rows={1} value={draft} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void send()}}} placeholder={editingMessage?"Измените сообщение":"Сообщение"}/><button className="send" onClick={()=>void send()}>{editingMessage?"✓":"↑"}</button></footer></>}
+    {pendingAttachment&&<div className="pending-attachment">{pendingAttachment.kind==="photo"&&pendingAttachment.previewUrl?<img src={pendingAttachment.previewUrl} alt="Предпросмотр вложения"/>:<b>⌑</b>}<span><strong>{pendingAttachment.file.name}</strong><small>{Math.max(1,Math.ceil(pendingAttachment.file.size/1024))} КБ · добавьте подпись ниже</small></span><button aria-label="Убрать вложение" onClick={clearPendingAttachment}>×</button></div>}
+    <footer><button aria-label="Прикрепить" disabled={uploading} onClick={()=>setAttachmentOpen(value=>!value)}>{uploading?"…":"＋"}</button>{attachmentOpen&&<div className="attachment-menu"><button onClick={()=>{setAttachmentOpen(false);window.setTimeout(()=>photoInput.current?.click(),0)}}>▧ Фото из галереи</button><button onClick={()=>{setAttachmentOpen(false);window.setTimeout(()=>fileInput.current?.click(),0)}}>⌑ Файл с устройства</button><button onClick={()=>void attachLocation()}>⌖ Геопозиция</button><button onClick={()=>{setAttachmentOpen(false);setRichAttachment("poll")}}>◉ Опрос</button><button onClick={()=>{setAttachmentOpen(false);setRichAttachment("checklist")}}>☑ Список задач</button><button onClick={()=>{setAttachmentOpen(false);setRichAttachment("contact")}}>♙ Контакт</button></div>}<input ref={photoInput} type="file" accept="image/*" hidden onChange={prepareAttachment}/><input ref={fileInput} type="file" accept="*/*" hidden onChange={prepareAttachment}/><textarea rows={1} value={draft} onChange={event=>setDraft(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void sendComposer()}}} placeholder={uploading?"Загружаем вложение…":pendingAttachment?"Добавьте подпись к вложению":editingMessage?"Измените сообщение":"Сообщение"}/><button className="send" disabled={uploading||(!pendingAttachment&&!draft.trim())} onClick={()=>void sendComposer()}>{editingMessage?"✓":"↑"}</button></footer></>}
    </>:<Empty text="Выберите чат или создайте новое сообщение"/>}
   </section>
   {composeOpen&&<Compose contacts={contacts} results={searchResults} search={search} setSearch={setSearch} close={()=>setComposeOpen(false)} addContact={addContact} openChat={openChat} openProfile={openProfile}/>}
   {profileOpen&&<ProfileModal profile={profileOpen} close={()=>setProfileOpen(null)} addContact={addContact} openChat={openChat}/>}
   {privacyOpen&&profile&&<PrivacyModal profile={profile} close={()=>setPrivacyOpen(false)} save={async privacy=>{const next={...profile,privacy};setProfile(next);if(await saveProfile(next))setPrivacyOpen(false)}}/>}
-  {updateInfo&&<UpdateModal info={updateInfo} close={()=>setUpdateInfo(null)} apply={()=>void applyUpdate()}/>}
+  {updateInfo&&<UpdateModal info={updateInfo} close={()=>{localStorage.setItem("orbit_update_dismissed",updateInfo.build);setUpdateInfo(null)}} apply={()=>void applyUpdate()}/>}
   {notificationSettingsOpen&&<NotificationSettings enabled={notificationsEnabled} sound={soundEnabled} close={()=>setNotificationSettingsOpen(false)} setEnabled={value=>void setNotificationPreference(value)} setSound={setSoundPreference} preview={()=>void previewPlum()}/>}
   {messageMenu&&<MessageActions message={messageMenu} mine={messageMenu.senderId===profile?.id} close={()=>setMessageMenu(null)} act={action=>void messageAction(action,messageMenu)}/>}
   {forwardMessages.length>0&&<ForwardMessage chats={chats} count={forwardMessages.length} close={()=>setForwardMessages([])} forward={chatId=>void forwardTo(chatId)}/>}
@@ -374,6 +402,7 @@ export default function MessengerApp(){
   {batchDeleteOpen&&<BatchDelete count={selectedMessageIds.size} canDeleteAll={canDeleteSelectedForAll} group={activeChat?.kind==="group"} close={()=>setBatchDeleteOpen(false)} remove={scope=>void removeSelected(scope)}/>}
   {galleryOpen&&<MediaGallery items={galleryItems} close={()=>setGalleryOpen(false)}/>}
   {avatarEditor&&<AvatarEditor value={avatarEditor} setValue={setAvatarEditor} close={()=>setAvatarEditor(null)} save={()=>void saveAvatar()}/>}
+  {richAttachment&&<RichAttachmentModal kind={richAttachment} contacts={contacts} close={()=>setRichAttachment(null)} send={(kind,payload)=>sendStructured(kind,payload)}/>}
   {toast&&<div className="orbit-toast">{toast}</div>}
  </main>
 }
@@ -433,25 +462,54 @@ function Settings({profile,setProfile,saveProfile,toggleSync,syncing,syncNow,ava
  </div>
 }
 
-function MessageBubble({message,mine,reply,selectionMode,selected,menu,select,toggle,answer,share,retry,seen}:{message:Message;mine:boolean;reply?:Message;selectionMode:boolean;selected:boolean;menu:()=>void;select:()=>void;toggle:()=>void;answer:()=>void;share:()=>void;retry:()=>void;seen:()=>void}){
- const start=useRef({x:0,y:0}),timer=useRef<number|undefined>(undefined),longPressed=useRef(false),moved=useRef(false),bubbleRef=useRef<HTMLDivElement|null>(null),seenOnce=useRef(false);const [dragX,setDragX]=useState(0),[dragging,setDragging]=useState(false);
+function MessageBubble({message,mine,currentUserId,reply,selectionMode,selected,menu,select,toggle,answer,share,retry,seen,structured}:{message:Message;mine:boolean;currentUserId:string;reply?:Message;selectionMode:boolean;selected:boolean;menu:()=>void;select:()=>void;toggle:()=>void;answer:()=>void;share:()=>void;retry:()=>void;seen:()=>void;structured:(action:"poll-vote"|"checklist-toggle",index:number)=>void}){
+ const start=useRef({x:0,y:0}),timer=useRef<number|undefined>(undefined),longPressed=useRef(false),moved=useRef(false),suppressClick=useRef(false),bubbleRef=useRef<HTMLDivElement|null>(null),seenOnce=useRef(false);const [dragX,setDragX]=useState(0),[dragging,setDragging]=useState(false);
  const status=message.deliveryStatus==="failed"?"не отправлено":message.deliveryStatus==="read"?"прочитано":message.deliveryStatus==="delivered"?"доставлено":"отправлено";
  useEffect(()=>{if(mine||message.deletedAt||message.failed||seenOnce.current||!bubbleRef.current||!("IntersectionObserver" in window))return;let visibleTimer:number|undefined;const observer=new IntersectionObserver(entries=>{const visible=entries.some(entry=>entry.isIntersecting&&entry.intersectionRatio>=.65)&&document.visibilityState==="visible";if(visible&&!visibleTimer)visibleTimer=window.setTimeout(()=>{seenOnce.current=true;seen();observer.disconnect()},3000);else if(!visible&&visibleTimer){window.clearTimeout(visibleTimer);visibleTimer=undefined}},{threshold:[0,.65,1]});observer.observe(bubbleRef.current);return()=>{observer.disconnect();if(visibleTimer)window.clearTimeout(visibleTimer)}},[message.id,mine,message.deletedAt,message.failed]);
- function down(event:React.PointerEvent<HTMLDivElement>){if(message.deletedAt)return;event.currentTarget.setPointerCapture(event.pointerId);start.current={x:event.clientX,y:event.clientY};longPressed.current=false;moved.current=false;setDragging(true);timer.current=window.setTimeout(()=>{longPressed.current=true;setDragX(0);select()},560)}
- function move(event:React.PointerEvent<HTMLDivElement>){if(!dragging||longPressed.current)return;const dx=event.clientX-start.current.x,dy=event.clientY-start.current.y;if(Math.abs(dx)>8){moved.current=true;if(timer.current)window.clearTimeout(timer.current)}if(Math.abs(dx)>Math.abs(dy)){event.preventDefault();setDragX(Math.max(-108,Math.min(108,dx)))} }
- function up(event:React.PointerEvent<HTMLDivElement>){if(timer.current)window.clearTimeout(timer.current);const dx=event.clientX-start.current.x,dy=Math.abs(event.clientY-start.current.y);setDragging(false);setDragX(0);if(longPressed.current)return;if(selectionMode){toggle();return}if(dy<58&&dx>74){answer();navigator.vibrate?.(18);return}if(dy<58&&dx<-74){share();navigator.vibrate?.(18);return}if(!moved.current&&Math.abs(dx)<10&&dy<10)menu()}
+ function down(event:React.PointerEvent<HTMLDivElement>){if(message.deletedAt)return;event.currentTarget.setPointerCapture(event.pointerId);start.current={x:event.clientX,y:event.clientY};longPressed.current=false;moved.current=false;suppressClick.current=false;setDragging(true);timer.current=window.setTimeout(()=>{longPressed.current=true;suppressClick.current=true;setDragX(0);select()},560)}
+ function move(event:React.PointerEvent<HTMLDivElement>){if(!dragging||longPressed.current)return;const dx=event.clientX-start.current.x,dy=event.clientY-start.current.y;if(Math.abs(dx)>8){moved.current=true;suppressClick.current=true;if(timer.current)window.clearTimeout(timer.current)}if(Math.abs(dx)>Math.abs(dy)){event.preventDefault();setDragX(Math.max(-108,Math.min(108,dx)))} }
+ function up(event:React.PointerEvent<HTMLDivElement>){if(timer.current)window.clearTimeout(timer.current);const dx=event.clientX-start.current.x,dy=Math.abs(event.clientY-start.current.y);setDragging(false);setDragX(0);if(longPressed.current)return;if(selectionMode){suppressClick.current=true;toggle();return}if(dy<58&&dx>74){suppressClick.current=true;answer();navigator.vibrate?.(18);return}if(dy<58&&dx<-74){suppressClick.current=true;share();navigator.vibrate?.(18);return}}
  function cancel(){if(timer.current)window.clearTimeout(timer.current);setDragging(false);setDragX(0)}
  const cueOpacity=Math.min(1,Math.abs(dragX)/70);
  return <div className={`message-choice-row${mine?" mine":""}${selected?" selected":""}`}>
   {selectionMode&&<button className={`message-select-check${selected?" checked":""}`} aria-label={selected?"Убрать сообщение из выбранных":"Выбрать сообщение"} onClick={toggle}>{selected?"✓":""}</button>}
-  <div className="message-swipe-shell"><span className="swipe-cue reply-cue" style={{opacity:dragX>0?cueOpacity:0}}>↩ <small>Ответить</small></span><span className="swipe-cue share-cue" style={{opacity:dragX<0?cueOpacity:0}}><small>Поделиться</small> ↗</span><div ref={bubbleRef} className={`${mine?"msg me":"msg"}${message.deletedAt?" deleted":""}${message.failed?" failed":""}${dragging?" dragging":""}`} style={{transform:`translate3d(${dragX}px,0,0)`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} onContextMenu={event=>{event.preventDefault();select()}}>
+  <div className="message-swipe-shell"><span className="swipe-cue reply-cue" style={{opacity:dragX>0?cueOpacity:0}}>↩ <small>Ответить</small></span><span className="swipe-cue share-cue" style={{opacity:dragX<0?cueOpacity:0}}><small>Поделиться</small> ↗</span><div ref={bubbleRef} className={`${mine?"msg me":"msg"}${message.deletedAt?" deleted":""}${message.failed?" failed":""}${dragging?" dragging":""}`} style={{transform:`translate3d(${dragX}px,0,0)`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} onClick={event=>{if((event.target as HTMLElement).closest("button,a"))return;if(!suppressClick.current&&!selectionMode)menu();suppressClick.current=false}} onContextMenu={event=>{event.preventDefault();select()}}>
   {message.forwardedFromId&&<small className="forwarded-label">↗ Пересланное сообщение</small>}
   {reply&&<div className="reply-preview"><b>Ответ</b><span>{reply.body||reply.fileName}</span></div>}
-  {message.deletedAt?<p className="deleted-copy">Сообщение удалено</p>:message.kind==="photo"?<a className="photo-message" href={`/api/files?id=${encodeURIComponent(message.id)}`} download><img src={`/api/files?id=${encodeURIComponent(message.id)}&inline=1`} alt={message.fileName||"Фото"}/><span>↓ Скачать фото</span></a>:message.kind==="file"?<a className="file-message" href={`/api/files?id=${encodeURIComponent(message.id)}`} download><b>⌑</b><span><strong>{message.fileName||"Файл"}</strong><small>{message.fileSize?Math.ceil(message.fileSize/1024)+" КБ":""} · Скачать</small></span></a>:message.kind==="sticker"?<img className="orbit-sticker" src={message.body||""} alt="Стикер"/>:<p>{message.body}</p>}
+  {message.deletedAt?<p className="deleted-copy">Сообщение удалено</p>:message.kind==="photo"||message.kind==="file"?<SecureAttachment message={message}/>:message.kind==="location"||message.kind==="poll"||message.kind==="checklist"||message.kind==="contact"?<StructuredMessage message={message} currentUserId={currentUserId} act={structured}/>:message.kind==="sticker"?<img className="orbit-sticker" src={message.body||""} alt="Стикер"/>:<p>{message.body}</p>}
   <div className="message-meta">{message.editedAt&&<span>изменено</span>}<time>{new Date(message.createdAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}</time>{mine&&!message.deletedAt&&<span className={`delivery ${message.deliveryStatus||"sent"}`} title={status}>{message.deliveryStatus==="failed"?"!":message.deliveryStatus==="read"?"✓✓":"✓"} {status}</span>}</div>
   </div></div>
   {message.failed&&<button className="message-retry" aria-label="Повторить отправку" title="Повторить отправку" onClick={retry}>⟳</button>}
  </div>
+}
+
+function parseMessageBody<T>(message:Message,fallback:T):T{try{return JSON.parse(message.body||"") as T}catch{return fallback}}
+function SecureAttachment({message}:{message:Message}){
+ const [preview,setPreview]=useState(""),[busy,setBusy]=useState(false);
+ useEffect(()=>{if(message.kind!=="photo")return;let active=true,url="";appFetch(`/api/files?id=${encodeURIComponent(message.id)}&inline=1`).then(async response=>{if(!response.ok)throw new Error();url=URL.createObjectURL(await response.blob());if(active)setPreview(url)}).catch(()=>undefined);return()=>{active=false;if(url)URL.revokeObjectURL(url)}},[message.id,message.kind]);
+ async function download(){if(busy)return;setBusy(true);try{const response=await appFetch(`/api/files?id=${encodeURIComponent(message.id)}`);if(!response.ok)throw new Error();const url=URL.createObjectURL(await response.blob()),anchor=document.createElement("a");anchor.href=url;anchor.download=message.fileName||"file";document.body.appendChild(anchor);anchor.click();anchor.remove();window.setTimeout(()=>URL.revokeObjectURL(url),1000)}finally{setBusy(false)}}
+ return <div className="attachment-with-caption"><button className={message.kind==="photo"?"photo-message secure-attachment":"file-message secure-attachment"} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();void download()}}>{message.kind==="photo"?(preview?<img src={preview} alt={message.fileName||"Фото"}/>:<span className="attachment-loading">Загружаем фото…</span>):<b>⌑</b>}<span>{message.kind==="file"&&<strong>{message.fileName||"Файл"}</strong>}<small>{message.fileSize?Math.ceil(message.fileSize/1024)+" КБ · ":""}{busy?"Скачиваем…":"↓ Скачать"}</small></span></button>{message.body&&<p className="attachment-caption">{message.body}</p>}</div>
+}
+function StructuredMessage({message,currentUserId,act}:{message:Message;currentUserId:string;act:(action:"poll-vote"|"checklist-toggle",index:number)=>void}){
+ if(message.kind==="location"){
+  const value=parseMessageBody(message,{latitude:0,longitude:0,accuracy:0,label:"Геопозиция"});const href=`https://www.openstreetmap.org/?mlat=${encodeURIComponent(value.latitude)}&mlon=${encodeURIComponent(value.longitude)}#map=16/${encodeURIComponent(value.latitude)}/${encodeURIComponent(value.longitude)}`;
+  return <a className="location-card" href={href} target="_blank" rel="noreferrer" onPointerDown={event=>event.stopPropagation()}><b>⌖</b><span><strong>{value.label||"Геопозиция"}</strong><small>Точность около {value.accuracy||0} м · Открыть карту</small></span></a>
+ }
+ if(message.kind==="poll"){
+  const value=parseMessageBody(message,{question:"Опрос",options:[] as Array<{text:string;voters?:string[]}>});const total=value.options.reduce((sum,option)=>sum+(option.voters?.length||0),0);
+  return <div className="poll-card" onPointerDown={event=>event.stopPropagation()}><strong>◉ {value.question}</strong>{value.options.map((option,index)=>{const selected=option.voters?.includes(currentUserId),count=option.voters?.length||0,percent=total?Math.round(count/total*100):0;return <button key={index} className={selected?"selected":""} onClick={()=>act("poll-vote",index)}><span>{selected?"✓":"○"} {option.text}</span><small>{percent}% · {count}</small><i style={{width:`${percent}%`}}/></button>})}<small>Голосов: {total}</small></div>
+ }
+ if(message.kind==="checklist"){
+  const value=parseMessageBody(message,{title:"Список",items:[] as Array<{text:string;checkedBy?:string[]}>});return <div className="checklist-card" onPointerDown={event=>event.stopPropagation()}><strong>☑ {value.title}</strong>{value.items.map((item,index)=>{const done=Boolean(item.checkedBy?.length),mine=item.checkedBy?.includes(currentUserId);return <button key={index} className={done?"done":""} onClick={()=>act("checklist-toggle",index)}><i>{mine?"✓":done?"✓":""}</i><span>{item.text}</span></button>})}</div>
+ }
+ const value=parseMessageBody(message,{id:"",name:"Контакт",handle:""});return <div className="contact-card"><Avatar name={value.name}/><span><strong>{value.name}</strong><small>{value.handle||"Контакт Orbit"}</small></span></div>
+}
+
+function RichAttachmentModal({kind,contacts,close,send}:{kind:RichAttachmentKind;contacts:Profile[];close:()=>void;send:(kind:RichAttachmentKind,payload:unknown)=>Promise<boolean>}){
+ const [title,setTitle]=useState(""),[rows,setRows]=useState(["",""]),[busy,setBusy]=useState(false);
+ const heading=kind==="poll"?"Новый опрос":kind==="checklist"?"Новый список задач":"Прикрепить контакт";
+ async function submit(event:FormEvent){event.preventDefault();const clean=rows.map(item=>item.trim()).filter(Boolean);if(!title.trim()||clean.length<(kind==="poll"?2:1))return;setBusy(true);await send(kind,kind==="poll"?{question:title.trim(),options:clean.map(text=>({text,voters:[]}))}:{title:title.trim(),items:clean.map(text=>({text,checkedBy:[]}))});setBusy(false)}
+ return <div className="modal-back"><div className="rich-attachment-modal"><header><div><small>ВЛОЖЕНИЕ</small><h2>{heading}</h2></div><button onClick={close}>×</button></header>{kind==="contact"?<div className="contact-attach-list">{contacts.length===0?<p>Сначала добавьте пользователя в контакты.</p>:contacts.map(person=><button key={person.id} disabled={busy} onClick={async()=>{setBusy(true);await send("contact",{id:person.id,name:person.name,handle:person.handle,avatarUrl:person.avatarUrl||null});setBusy(false)}}><Avatar name={person.name} url={person.avatarUrl} preset={person.avatarPreset}/><span><b>{person.name}</b><small>{person.handle}</small></span><i>＋</i></button>)}</div>:<form onSubmit={submit}><label>{kind==="poll"?"Вопрос":"Название списка"}<input autoFocus maxLength={180} value={title} onChange={event=>setTitle(event.target.value)} placeholder={kind==="poll"?"О чём спросить?":"Например, Подготовка к поездке"}/></label><div className="rich-rows">{rows.map((row,index)=><label key={index}>{kind==="poll"?`Вариант ${index+1}`:`Пункт ${index+1}`}<span><input maxLength={160} value={row} onChange={event=>setRows(current=>current.map((item,i)=>i===index?event.target.value:item))}/>{rows.length>2&&<button type="button" onClick={()=>setRows(current=>current.filter((_,i)=>i!==index))}>×</button>}</span></label>)}</div><button type="button" className="add-rich-row" onClick={()=>setRows(current=>current.length<10?[...current,""]:current)}>＋ Добавить {kind==="poll"?"вариант":"пункт"}</button><button className="primary-action" disabled={busy||!title.trim()||rows.filter(item=>item.trim()).length<(kind==="poll"?2:1)}>{busy?"Отправляем…":"Прикрепить"}</button></form>}</div></div>
 }
 
 function EmojiPicker({insert,sticker}:{insert:(value:string)=>void;sticker:(url:string)=>void}){

@@ -2,6 +2,7 @@ package ru.orbitmarketing.connect;
 
 import android.Manifest;
 import android.content.Intent;
+import android.app.PendingIntent;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.media.AudioAttributes;
@@ -31,6 +32,28 @@ import java.net.URL;
     @Permission(alias = "notifications", strings = {Manifest.permission.POST_NOTIFICATIONS})
 })
 public class PhoneContactsPlugin extends Plugin {
+    private JSObject notificationIntent(Intent intent) {
+        JSObject result = new JSObject();
+        if (intent != null && "orbit.openChat".equals(intent.getAction())) {
+            result.put("action", "openChat");
+            result.put("chatId", intent.getStringExtra("chatId"));
+            intent.setAction(null);
+        }
+        return result;
+    }
+
+    @PluginMethod
+    public void getLaunchAction(PluginCall call) {
+        call.resolve(notificationIntent(getActivity().getIntent()));
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        JSObject data = notificationIntent(intent);
+        if (data.has("chatId")) notifyListeners("notificationAction", data, true);
+    }
+
     @PluginMethod
     public void getAppInfo(PluginCall call) {
         try {
@@ -157,7 +180,16 @@ public class PhoneContactsPlugin extends Plugin {
         }
         String title = call.getString("title", "Orbit Connect");
         String body = call.getString("body", "Новое событие");
-        manager.notify((int) (System.currentTimeMillis() % Integer.MAX_VALUE), new NotificationCompat.Builder(getContext(), channelId).setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(body).setSound(sound).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).build());
+        String chatId = call.getString("chatId", "");
+        String token = call.getString("token", "");
+        int notificationId = (int) (System.currentTimeMillis() % Integer.MAX_VALUE);
+        Intent openIntent = new Intent(getContext(), MainActivity.class).setAction("orbit.openChat").putExtra("chatId", chatId).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPending = PendingIntent.getActivity(getContext(), notificationId, openIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent readIntent = new Intent(getContext(), NotificationActionReceiver.class).setAction("orbit.markRead").putExtra("chatId", chatId).putExtra("token", token).putExtra("notificationId", notificationId);
+        PendingIntent readPending = PendingIntent.getBroadcast(getContext(), notificationId + 1, readIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getContext(), channelId).setSmallIcon(R.mipmap.ic_launcher).setContentTitle(title).setContentText(body).setSound(sound).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).setContentIntent(openPending);
+        if (!chatId.isEmpty()) builder.addAction(android.R.drawable.ic_menu_view, "Открыть чат", openPending).addAction(android.R.drawable.checkbox_on_background, "Прочитано", readPending);
+        manager.notify(notificationId, builder.build());
         call.resolve();
     }
 }
