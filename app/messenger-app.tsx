@@ -53,7 +53,7 @@ export default function MessengerApp(){
  const [theme,setTheme]=useState(()=>typeof window!=="undefined"?localStorage.getItem("orbit_theme")||"lime":"lime");
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
 
- useEffect(()=>{void boot();const timer=window.setTimeout(()=>setIntro(false),1800);return()=>window.clearTimeout(timer)},[]);
+ useEffect(()=>{void boot()},[]);
  useEffect(()=>{
   setNotificationsEnabled(localStorage.getItem("orbit_notifications")!=="off");
   setSoundEnabled(localStorage.getItem("orbit_sound")!=="off");
@@ -131,7 +131,7 @@ export default function MessengerApp(){
    if(data.profile.registered)await loadAll();
    setReady(true);
   }catch(value){setError(value instanceof Error?value.message:"Нет соединения")}
-  finally{setProgress("")}
+  finally{setProgress("");setIntro(false)}
  }
  async function loadAll(){await Promise.all([loadPeople(),loadChats()])}
  async function loadPeople(){
@@ -409,7 +409,7 @@ export default function MessengerApp(){
 
 function Avatar({name,url,preset}:{name:string;url?:string|null;preset?:string|null}){return <span className={`orbit-avatar${preset&&!url?" preset":""}`} style={url?{backgroundImage:`url(${url})`}:undefined}>{url?"":preset||initials(name)}</span>}
 function Empty({text}:{text:string}){return <div className="orbit-empty"><img src="/orbit-connect-logo-v3.png" alt=""/><p>{text}</p></div>}
-function EntryIntro(){return <div className="entry-intro"><div className="entry-halo"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i/><i/></div><div className="entry-word"><b>ORBIT</b><span>CONNECT</span></div><small>ТВОЙ КРУГ СТАНОВИТСЯ БЛИЖЕ</small></div>}
+function EntryIntro(){return <div className="entry-intro" role="status" aria-label="Orbit Connect загружается"><div className="entry-halo"><img src="/orbit-connect-icon-192.png" alt="Orbit Connect"/><i/><i/><i/></div><div className="entry-word"><b>ORBIT</b><span>CONNECT</span></div><small>ТВОЙ КРУГ СТАНОВИТСЯ БЛИЖЕ</small><div className="entry-dots" aria-hidden="true"><span/><span/><span/></div></div>}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function LegacyRegistration({profile,onComplete,notify}:{profile:Profile;onComplete:(profile:Profile)=>void;notify:(text:string)=>void}){

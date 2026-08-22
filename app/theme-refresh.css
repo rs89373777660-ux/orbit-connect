@@ -143,6 +143,20 @@
 .orbit-v4 .poll-card button{position:relative;overflow:hidden;display:flex;justify-content:space-between;gap:14px;border:1px solid #ffffff25;background:#ffffff0d;color:inherit;padding:10px 11px;text-align:left;border-radius:15px!important}.orbit-v4 .poll-card button.selected{border-color:currentColor}.orbit-v4 .poll-card button span,.orbit-v4 .poll-card button small{position:relative;z-index:1}.orbit-v4 .poll-card button i{position:absolute;left:0;bottom:0;height:3px;background:currentColor;opacity:.65}
 .orbit-v4 .checklist-card button{display:flex;align-items:center;gap:9px;border:0;background:transparent;color:inherit;padding:7px;text-align:left;border-radius:12px!important}.orbit-v4 .checklist-card button i{width:22px;height:22px;flex:0 0 22px;border:1px solid currentColor;border-radius:50%;display:grid;place-items:center;font-style:normal}.orbit-v4 .checklist-card button.done span{text-decoration:line-through;opacity:.55}
 .orbit-v4 .contact-card .orbit-avatar{width:48px!important;height:48px!important;flex:0 0 48px!important}
+.entry-intro{animation:none;background:radial-gradient(circle at 50% 44%,#264a2d 0,#0b130c 24%,#050705 58%)}
+.entry-intro::before,.entry-intro::after{display:none}
+.entry-halo{width:172px;height:172px;animation:entryFloat 2.8s ease-in-out infinite}
+.entry-halo img{width:92px;height:92px;border-radius:28px;box-shadow:0 0 34px #cfff3c55,0 0 90px #4eeaff1f;animation:entryLogoPulse 2.4s ease-in-out infinite}
+.entry-halo i{inset:18px;border:1px solid #cfff3c99;animation:entryOrbit 3.6s linear infinite}
+.entry-halo i::after{content:"";position:absolute;width:10px;height:10px;left:50%;top:-5px;border-radius:50%;background:#cfff3c;box-shadow:0 0 18px #cfff3c}
+.entry-halo i:nth-of-type(2){inset:2px;border-color:#4eeaff66;animation-duration:5.2s;animation-direction:reverse}
+.entry-halo i:nth-of-type(2)::after{width:7px;height:7px;top:-4px;background:#4eeaff;box-shadow:0 0 16px #4eeaff}
+.entry-halo i:nth-of-type(3){inset:-16px;border-color:#ffffff20;animation-duration:7s}
+.entry-halo i:nth-of-type(3)::after{width:5px;height:5px;top:-3px;background:#fff;box-shadow:0 0 12px #fff}
+.entry-word,.entry-intro>small{animation:entryLetters .8s ease both}
+.entry-intro>small{animation-delay:.16s}
+.entry-dots{display:flex;gap:8px;height:10px}.entry-dots span{width:7px;height:7px;border-radius:50%;background:#cfff3c;animation:entryDot 1.1s ease-in-out infinite}.entry-dots span:nth-child(2){animation-delay:.16s}.entry-dots span:nth-child(3){animation-delay:.32s}
+@keyframes entryOrbit{to{transform:rotate(360deg)}}@keyframes entryFloat{50%{transform:translateY(-7px)}}@keyframes entryLogoPulse{50%{transform:scale(1.045);filter:saturate(1.2)}}@keyframes entryDot{0%,100%{opacity:.24;transform:scale(.72)}50%{opacity:1;transform:scale(1)}}
 .orbit-v4 .attachment-menu{left:14px;right:14px;bottom:66px;width:auto;max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(6,minmax(48px,1fr));gap:9px;padding:10px;border-radius:28px!important;box-shadow:0 18px 55px #000b;backdrop-filter:blur(18px)}
 .orbit-v4 .attachment-menu button{position:relative;display:grid;place-items:center;min-width:48px;aspect-ratio:1;margin:0;padding:0;border:1px solid #ffffff18;border-radius:50%!important;background:#161d15;color:var(--accent);font-size:25px;transition:transform .16s,background .16s}
 .orbit-v4 .attachment-menu button:hover,.orbit-v4 .attachment-menu button:focus-visible{background:var(--accent);color:var(--accent-ink);transform:translateY(-3px)}
