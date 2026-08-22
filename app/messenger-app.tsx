@@ -25,7 +25,10 @@ async function appFetch(input:RequestInfo|URL,init:RequestInit={}){
  const headers=new Headers(init.headers),token=localStorage.getItem("orbit_session");
  if(token)headers.set("authorization",`Bearer ${token}`);
  const response=await fetch(input,{...init,headers});
- if(response.status===401&&token&&!String(input).includes("/api/registration")){localStorage.removeItem("orbit_session");window.setTimeout(()=>location.reload(),80)}
+ // Never force-reload WebView from a secondary API request. Several parallel
+ // requests can briefly return 401 while a session is being renewed; reloading
+ // here caused an Android navigation loop ending on chrome-error://chromewebdata.
+ if(response.status===401&&token&&!String(input).includes("/api/registration"))localStorage.removeItem("orbit_session");
  return response;
 }
 function initials(name:string){return name.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()||"OR"}
