@@ -207,7 +207,7 @@ export default function MessengerApp(){
   catch{notify("Не удалось включить звук. Проверьте громкость мультимедиа")}
  }
  async function shareApp(){
-  let apkPath="/orbit-connect-v5.apk";try{const response=await fetch(`/api/version?t=${Date.now()}`,{cache:"no-store"});if(response.ok)apkPath=(await response.json()).apk?.url||apkPath}catch{}
+  let apkPath="/orbit-connect-v6.apk";try{const response=await fetch(`/api/version?t=${Date.now()}`,{cache:"no-store"});if(response.ok)apkPath=(await response.json()).apk?.url||apkPath}catch{}
   const data={title:"Orbit Connect для Android",text:"Скачайте актуальную версию Orbit Connect для Android — мессенджера для общения, файлов и звонков.",url:new URL(apkPath,location.origin).href};
   if(navigator.share){try{await navigator.share(data);return}catch(error){if(error instanceof DOMException&&error.name==="AbortError")return}}
   await navigator.clipboard.writeText(`${data.text}\n${data.url}`);notify("Ссылка на приложение скопирована");
@@ -265,18 +265,21 @@ export default function MessengerApp(){
   const chat={id:data.chat.id,name:person.name,kind:"direct",createdAt:data.chat.createdAt};activeChatIdRef.current=chat.id;scrollRequest.current="auto";setActiveChat(chat);setMessages(messageCache.current.get(chat.id)||[]);setComposeOpen(false);setSection("chats");setMobileChatOpen(true);void loadMessages(chat.id);void loadChats();
  }
  async function send(){
-  let text=draft.trim();if(!text||!activeChat||!profile)return;const originalText=text,chatId=activeChat.id,temporaryId=`pending-${Date.now()}-${Math.random()}`,editingOriginal=editingMessage?messages.find(message=>message.id===editingMessage.id):null;
+  let text=draft.trim();if(!text||!activeChat||!profile)return;const originalText=text,chatId=activeChat.id,replyToId=replyingTo?.id||null,temporaryId=`pending-${Date.now()}-${Math.random()}`,editingOriginal=editingMessage?messages.find(message=>message.id===editingMessage.id):null;
   scrollRequest.current="smooth";if(editingMessage)setMessages(current=>current.map(message=>message.id===editingMessage.id?{...message,body:text,editedAt:Date.now()}:message));else setMessages(current=>[...current,{id:temporaryId,senderId:profile.id,body:text,kind:"text",replyTo:replyingTo?.id||null,deliveryStatus:"sent",createdAt:Date.now()}]);
   setDraft("");setReplyingTo(null);
   try{
-   if(profile?.autoCorrectEnabled&&!editingMessage){const corrected=await requestAi("correct",text);if(corrected)text=corrected}
-   const payload=editingMessage?{action:"edit",messageId:editingMessage.id,body:text}:{chatId:activeChat.id,body:text,replyTo:replyingTo?.id};
+   const payload=editingMessage?{action:"edit",messageId:editingMessage.id,body:text}:{chatId,body:text,replyTo:replyToId};
    const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)});
    const data=await r.json().catch(()=>({}));if(!r.ok){setMessages(current=>editingOriginal?current.map(message=>message.id===editingOriginal.id?editingOriginal:message):current.map(message=>message.id===temporaryId?{...message,deliveryStatus:"failed",failed:true}:message));if(editingOriginal)setDraft(originalText);notify(data.error||"Сообщение не отправлено");setConnectionOnline(navigator.onLine);return}
-   setEditingMessage(null);await loadMessages(chatId);
+   setEditingMessage(null);setConnectionOnline(true);
+   if(editingOriginal){messageCache.current.delete(chatId)}else if(data.message){setMessages(current=>current.map(message=>message.id===temporaryId?{...message,...data.message,deliveryStatus:"delivered",failed:false}:message))}
+   window.setTimeout(()=>void loadChats(),0);
+   if(profile.autoCorrectEnabled&&!editingOriginal&&data.message?.id){void requestAi("correct",originalText).then(async corrected=>{if(!corrected||corrected===originalText)return;const edit=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"edit",messageId:data.message.id,body:corrected})});if(edit.ok)setMessages(current=>current.map(message=>message.id===data.message.id?{...message,body:corrected,editedAt:Date.now()}:message))}).catch(()=>undefined)}
+   window.setTimeout(()=>void loadMessages(chatId),1200);
   }catch{setMessages(current=>editingOriginal?current.map(message=>message.id===editingOriginal.id?editingOriginal:message):current.map(message=>message.id===temporaryId?{...message,deliveryStatus:"failed",failed:true}:message));if(editingOriginal)setDraft(originalText);setConnectionOnline(false);notify("Нет соединения — нажмите повтор рядом с сообщением")}
  }
- async function retryMessage(message:Message){if(!activeChat||!message.body)return;scrollRequest.current="smooth";setMessages(current=>current.map(item=>item.id===message.id?{...item,deliveryStatus:"sent",failed:false}:item));try{const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId:activeChat.id,body:message.body,replyTo:message.replyTo})});if(!r.ok)throw new Error();await loadMessages(activeChat.id);setConnectionOnline(true)}catch{setMessages(current=>current.map(item=>item.id===message.id?{...item,deliveryStatus:"failed",failed:true}:item));setConnectionOnline(false);notify("Повторная отправка не удалась")}}
+ async function retryMessage(message:Message){if(!activeChat||!message.body)return;const chatId=activeChat.id;scrollRequest.current="smooth";setMessages(current=>current.map(item=>item.id===message.id?{...item,deliveryStatus:"sent",failed:false}:item));try{const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chatId,body:message.body,replyTo:message.replyTo})}),data=await r.json().catch(()=>({}));if(!r.ok)throw new Error();if(data.message)setMessages(current=>current.map(item=>item.id===message.id?{...item,...data.message,deliveryStatus:"delivered",failed:false}:item));setConnectionOnline(true);window.setTimeout(()=>void loadMessages(chatId),1200)}catch{setMessages(current=>current.map(item=>item.id===message.id?{...item,deliveryStatus:"failed",failed:true}:item));setConnectionOnline(false);notify("Повторная отправка не удалась")}}
  function markMessageSeen(messageId:string){
   if(messageId.startsWith("pending-"))return;readQueue.current.add(messageId);if(readFlushTimer.current)window.clearTimeout(readFlushTimer.current);const chatId=activeChat?.id;readFlushTimer.current=window.setTimeout(async()=>{const messageIds=[...readQueue.current];readQueue.current.clear();if(!chatId||!messageIds.length)return;await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"mark-read",chatId,messageIds})}).catch(()=>undefined)},220)
  }

@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.webkit.WebView;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -19,13 +20,22 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final String SITE = "https://tvoy-krug-messenger.rs89373777660.chatgpt.site";
     private final Handler startupHandler = new Handler(Looper.getMainLooper());
-    private volatile String startupApkUrl = SITE + "/orbit-connect-v5.apk";
+    private volatile String startupApkUrl = SITE + "/orbit-connect-v6.apk";
     private volatile boolean recoveryVisible = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PhoneContactsPlugin.class);
         super.onCreate(savedInstanceState);
+        if (bridge != null) bridge.addWebViewListener(new WebViewListener() {
+            @Override public void onReceivedError(WebView webView) {
+                startupHandler.removeCallbacks(MainActivity.this::verifyWebAppReady);
+                startupHandler.postDelayed(MainActivity.this::verifyWebAppReady, 1200);
+            }
+            @Override public void onPageLoaded(WebView webView) {
+                startupHandler.postDelayed(MainActivity.this::verifyWebAppReady, 700);
+            }
+        });
         checkStartupUpdate();
         startupHandler.postDelayed(this::verifyWebAppReady, 15000);
     }
@@ -68,7 +78,7 @@ public class MainActivity extends BridgeActivity {
     private void verifyWebAppReady() {
         WebView webView = bridge == null ? null : bridge.getWebView();
         if (webView == null) { showRecovery(false); return; }
-        webView.evaluateJavascript("Boolean(document.querySelector('.orbit-v4,.registration-screen,.orbit-auth'))", value -> {
+        webView.evaluateJavascript("Boolean(document.querySelector('.orbit-v4,.registration-screen,.orbit-auth,.browser-qr-login,.entry-intro'))", value -> {
             if (!"true".equals(value)) showRecovery(false);
         });
     }
@@ -78,14 +88,15 @@ public class MainActivity extends BridgeActivity {
         recoveryVisible = true;
         AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle(updateAvailable ? "Доступно обновление Orbit" : "Orbit загружается дольше обычного")
-            .setMessage(updateAvailable ? "Установите свежую версию до запуска мессенджера." : "Можно повторить загрузку или переустановить актуальную версию приложения.")
+            .setMessage(updateAvailable ? "Установите свежую версию до запуска мессенджера." : "Сервер не загрузился. Проверьте интернет, отключите VPN при необходимости и повторите подключение.")
             .setPositiveButton("Обновить приложение", (value, which) -> downloadAndInstall())
             .setNegativeButton("Повторить загрузку", (value, which) -> {
                 WebView webView = bridge == null ? null : bridge.getWebView();
-                if (webView != null) webView.reload();
+                if (webView != null) webView.loadUrl(SITE + "/?app_retry=" + System.currentTimeMillis());
             })
             .setOnDismissListener(value -> recoveryVisible = false)
             .create();
+        dialog.setCanceledOnTouchOutside(false);
         dialog.show();
     }
 
