@@ -20,8 +20,9 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final String SITE = "https://tvoy-krug-messenger.rs89373777660.chatgpt.site";
     private final Handler startupHandler = new Handler(Looper.getMainLooper());
-    private volatile String startupApkUrl = SITE + "/orbit-connect-v6.apk";
+    private volatile String startupApkUrl = SITE + "/orbit-connect-v7.apk";
     private volatile boolean recoveryVisible = false;
+    private volatile boolean mainPageLoaded = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -29,15 +30,16 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         if (bridge != null) bridge.addWebViewListener(new WebViewListener() {
             @Override public void onReceivedError(WebView webView) {
-                startupHandler.removeCallbacks(MainActivity.this::verifyWebAppReady);
-                startupHandler.postDelayed(MainActivity.this::verifyWebAppReady, 1200);
+                // This callback also fires for failed images and API requests.
+                // A secondary-resource error must not hide a working messenger.
             }
             @Override public void onPageLoaded(WebView webView) {
-                startupHandler.postDelayed(MainActivity.this::verifyWebAppReady, 700);
+                mainPageLoaded = true;
+                startupHandler.removeCallbacks(MainActivity.this::verifyWebAppReady);
             }
         });
         checkStartupUpdate();
-        startupHandler.postDelayed(this::verifyWebAppReady, 15000);
+        startupHandler.postDelayed(this::verifyWebAppReady, 30000);
     }
 
     private void checkStartupUpdate() {
@@ -76,10 +78,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void verifyWebAppReady() {
+        if (mainPageLoaded) return;
         WebView webView = bridge == null ? null : bridge.getWebView();
         if (webView == null) { showRecovery(false); return; }
-        webView.evaluateJavascript("Boolean(document.querySelector('.orbit-v4,.registration-screen,.orbit-auth,.browser-qr-login,.entry-intro'))", value -> {
-            if (!"true".equals(value)) showRecovery(false);
+        webView.evaluateJavascript("Boolean(document.body && (document.body.children.length || document.readyState === 'complete'))", value -> {
+            if ("true".equals(value)) mainPageLoaded = true;
+            else showRecovery(false);
         });
     }
 
@@ -92,7 +96,12 @@ public class MainActivity extends BridgeActivity {
             .setPositiveButton("Обновить приложение", (value, which) -> downloadAndInstall())
             .setNegativeButton("Повторить загрузку", (value, which) -> {
                 WebView webView = bridge == null ? null : bridge.getWebView();
-                if (webView != null) webView.loadUrl(SITE + "/?app_retry=" + System.currentTimeMillis());
+                mainPageLoaded = false;
+                if (webView != null) {
+                    webView.clearCache(true);
+                    webView.loadUrl(SITE + "/?app_retry=" + System.currentTimeMillis());
+                    startupHandler.postDelayed(MainActivity.this::verifyWebAppReady, 30000);
+                }
             })
             .setOnDismissListener(value -> recoveryVisible = false)
             .create();
