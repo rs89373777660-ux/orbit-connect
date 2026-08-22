@@ -12,17 +12,23 @@ export async function verifyPassword(password:string,stored:string|null){const p
 export async function createSessionForUser(userId:string){const token=`${crypto.randomUUID()}${crypto.randomUUID()}`,tokenHash=await hashToken(token),now=Date.now();await getDb().insert(appSessions).values({tokenHash,userId,createdAt:now,lastSeenAt:now});return token}
 
 export async function getAppUser(request:Request):Promise<AppUser|null>{
- const chatgpt=await getChatGPTUser();
- if(chatgpt)return {userId:chatgpt.userId,email:chatgpt.email,displayName:chatgpt.displayName};
  const authorization=request.headers.get("authorization");
  const cookieToken=request.headers.get("cookie")?.split(";").map(value=>value.trim()).find(value=>value.startsWith("orbit_session="))?.slice("orbit_session=".length);
- const token=authorization?.startsWith("Bearer ")?authorization.slice(7).trim():decodeURIComponent(cookieToken||"");if(token.length<32)return null;
- const tokenHash=await hashToken(token);const db=getDb();
- const [session]=await db.select().from(appSessions).where(eq(appSessions.tokenHash,tokenHash)).limit(1);if(!session)return null;
- const [user]=await db.select().from(users).where(eq(users.id,session.userId)).limit(1);if(!user)return null;
- await db.update(appSessions).set({lastSeenAt:Date.now()}).where(eq(appSessions.tokenHash,tokenHash));
- await ensureProfileIdentity(user.id);
- return {userId:user.id,email:user.email,displayName:user.name};
+ const token=authorization?.startsWith("Bearer ")?authorization.slice(7).trim():decodeURIComponent(cookieToken||"");
+ if(token.length>=32){
+  const tokenHash=await hashToken(token);const db=getDb();
+  const [session]=await db.select().from(appSessions).where(eq(appSessions.tokenHash,tokenHash)).limit(1);
+  if(session){
+   const [user]=await db.select().from(users).where(eq(users.id,session.userId)).limit(1);
+   if(user){
+    await db.update(appSessions).set({lastSeenAt:Date.now()}).where(eq(appSessions.tokenHash,tokenHash));
+    await ensureProfileIdentity(user.id);
+    return {userId:user.id,email:user.email,displayName:user.name};
+   }
+  }
+ }
+ const chatgpt=await getChatGPTUser();
+ return chatgpt?{userId:chatgpt.userId,email:chatgpt.email,displayName:chatgpt.displayName}:null;
 }
 
 export async function createGuest(name?:string){
