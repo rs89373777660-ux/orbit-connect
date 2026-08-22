@@ -54,7 +54,7 @@ export async function POST(request:Request){
    if(!body.messageId||!text)return Response.json({error:"Пустое сообщение"},{status:400});
    const [message]=await db.select().from(messages).where(eq(messages.id,body.messageId)).limit(1);
    if(!message||message.senderId!==user.userId||message.deletedAt)return Response.json({error:"Сообщение нельзя изменить"},{status:403});
-   if(message.kind!=="text")return Response.json({error:"Можно изменить только текст"},{status:400});
+   if(!["text","message"].includes(message.kind))return Response.json({error:"Можно изменить только текст"},{status:400});
    await db.update(messages).set({body:text,editedAt:Date.now()}).where(eq(messages.id,message.id));
    return Response.json({ok:true});
   }
