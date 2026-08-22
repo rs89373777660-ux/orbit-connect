@@ -96,7 +96,18 @@ export default function MessengerApp(){
   return()=>{window.removeEventListener("popstate",backToMain);window.removeEventListener("orbit:back",backToMain as EventListener)};
  },[]);
  useEffect(()=>{
-  if(!ready)return;const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{getLaunchAction?:()=>Promise<{chatId?:string}>;addListener?:(name:string,callback:(value:{chatId?:string})=>void)=>Promise<{remove:()=>Promise<void>}>}}}}).Capacitor?.Plugins?.PhoneContacts;if(!native)return;let listener:{remove:()=>Promise<void>}|undefined,active=true;const open=(value:{chatId?:string})=>{if(value.chatId)openChatById(value.chatId)};void native.getLaunchAction?.().then(value=>{if(active)open(value)}).catch(()=>undefined);void native.addListener?.("notificationAction",open).then(value=>{listener=value});return()=>{active=false;void listener?.remove()}
+  type ListenerHandle={remove:()=>Promise<void>|void};
+  const native=(window as typeof window&{Capacitor?:{Plugins?:{PhoneContacts?:{
+   getLaunchAction?:()=>Promise<{chatId?:string}>;
+   addListener?:(name:string,callback:(value:{chatId?:string})=>void)=>ListenerHandle|Promise<ListenerHandle>
+  }}}}).Capacitor?.Plugins?.PhoneContacts;
+  if(!ready||!native)return;
+  let listener:ListenerHandle|undefined,active=true;
+  const open=(value:{chatId?:string})=>{if(value.chatId)openChatById(value.chatId)};
+  void native.getLaunchAction?.().then(value=>{if(active)open(value)}).catch(()=>undefined);
+  const pending=native.addListener?.("notificationAction",open);
+  if(pending)void Promise.resolve(pending).then(value=>{if(active)listener=value;else void value.remove()}).catch(()=>undefined);
+  return()=>{active=false;void listener?.remove()}
  },[ready]);
  useEffect(()=>{
   if(!ready||!profile?.registered)return;
