@@ -49,6 +49,7 @@ export default function MessengerApp(){
  const [connectionOnline,setConnectionOnline]=useState(()=>typeof navigator==="undefined"?true:navigator.onLine);
  const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),photoInput=useRef<HTMLInputElement>(null),messageScrollRef=useRef<HTMLDivElement|null>(null),scrollRequest=useRef<"auto"|"smooth"|null>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>()),readQueue=useRef(new Set<string>()),readFlushTimer=useRef<number|undefined>(undefined);
  const activeChatIdRef=useRef<string|null>(null),messageCache=useRef(new Map<string,Message[]>()),messageLoadToken=useRef(0),chatsLoading=useRef(false),chatsRef=useRef<Chat[]>([]),pendingOpenChatId=useRef<string|null>(null);
+ const pinRequests=useRef(new Set<string>());
  const messageById=useMemo(()=>new Map(messages.map(message=>[message.id,message])),[messages]);
  const [theme,setTheme]=useState(()=>typeof window!=="undefined"?localStorage.getItem("orbit_theme")||"lime":"lime");
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
@@ -236,8 +237,17 @@ export default function MessengerApp(){
  }
  async function togglePin(chat:Chat){
   if(chat.systemPinned){notify("Этот чат всегда закреплён");return}
-  const r=await appFetch("/api/sync",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"pin-chat",chatId:chat.id})}),data=await r.json().catch(()=>({}));
-  if(!r.ok){notify(data.error||"Не удалось изменить закрепление");return}await loadChats();notify(data.pinnedAt?"Чат закреплён":"Чат откреплён");
+  if(pinRequests.current.has(chat.id))return;
+  pinRequests.current.add(chat.id);
+  const previous=chat.pinnedAt||null,nextPinned=previous?null:Date.now();
+  const reorder=(items:Chat[],pinnedAt:number|null)=>{const order=new Map(items.map((item,index)=>[item.id,index]));return items.map(item=>item.id===chat.id?{...item,pinnedAt}:item).sort((a,b)=>Number(Boolean(b.systemPinned))-Number(Boolean(a.systemPinned))||Number(Boolean(b.pinnedAt))-Number(Boolean(a.pinnedAt))||(a.pinnedAt&&b.pinnedAt?b.pinnedAt-a.pinnedAt:0)||(order.get(a.id)||0)-(order.get(b.id)||0))};
+  setChats(items=>reorder(items,nextPinned));setActiveChat(value=>value?.id===chat.id?{...value,pinnedAt:nextPinned}:value);notify(nextPinned?"Чат закреплён":"Чат откреплён");
+  try{
+   const r=await appFetch("/api/sync",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"pin-chat",chatId:chat.id})}),data=await r.json().catch(()=>({}));
+   if(!r.ok)throw new Error(data.error||"Не удалось изменить закрепление");
+   const confirmed=data.pinnedAt||null;setChats(items=>reorder(items,confirmed));setActiveChat(value=>value?.id===chat.id?{...value,pinnedAt:confirmed}:value);
+  }catch(error){setChats(items=>reorder(items,previous));setActiveChat(value=>value?.id===chat.id?{...value,pinnedAt:previous}:value);notify(error instanceof Error?error.message:"Не удалось изменить закрепление")}
+  finally{pinRequests.current.delete(chat.id)}
  }
  async function openChat(person:Profile){
   setProgress("СОЗДАЁМ ЧАТ…");

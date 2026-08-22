@@ -1,6 +1,10 @@
 .chat-row{padding-right:5px!important}
 .chat-row .person-main{align-self:stretch;padding:0;overflow:hidden}
 .chat-row .unread-count{min-width:24px;height:24px;padding:0 5px;box-sizing:border-box;border-radius:999px;display:grid;place-items:center;background:var(--accent,#cfff3c);color:#10120e;font-size:9px;line-height:1;flex:0 0 auto}
-.chat-row .chat-pin{width:32px;height:32px;flex:0 0 32px;border:0;border-radius:50%;background:transparent;color:#6f7769;font-size:18px;cursor:pointer;transform:rotate(-24deg)}
-.chat-row .chat-pin.active{color:var(--accent,#cfff3c);background:color-mix(in srgb,var(--accent,#cfff3c) 12%,transparent)}
+.chat-row .chat-pin{position:relative;width:34px;height:34px;flex:0 0 34px;border:0;border-radius:50%;background:transparent;color:#6f7769;font-size:0;cursor:pointer;transition:transform .2s ease,color .2s ease,background .2s ease;transform:rotate(-34deg)}
+.chat-row .chat-pin::before{content:"";position:absolute;left:9px;top:6px;width:16px;height:11px;border:2px solid currentColor;border-radius:9px 9px 4px 4px;box-sizing:border-box;box-shadow:inset 0 -3px 0 color-mix(in srgb,currentColor 35%,transparent)}
+.chat-row .chat-pin::after{content:"";position:absolute;left:16px;top:15px;width:2px;height:14px;border-radius:2px;background:currentColor;box-shadow:0 11px 0 -0.5px currentColor;transform-origin:top}
+.chat-row .chat-pin.active{color:var(--accent,#cfff3c);background:color-mix(in srgb,var(--accent,#cfff3c) 15%,transparent);transform:rotate(0)}
+.chat-row .chat-pin.active::before{background:color-mix(in srgb,var(--accent,#cfff3c) 26%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--accent,#cfff3c) 55%,transparent)}
+.chat-row .chat-pin:active{transform:rotate(-34deg) scale(.86)}.chat-row .chat-pin.active:active{transform:rotate(0) scale(.86)}
 .chat-row .chat-pin:focus-visible{outline:2px solid var(--accent,#cfff3c);outline-offset:1px}
