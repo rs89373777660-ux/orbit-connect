@@ -6,8 +6,12 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import androidx.core.content.FileProvider;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
 import java.io.File;
@@ -20,14 +24,31 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final String SITE = "https://tvoy-krug-messenger.rs89373777660.chatgpt.site";
     private final Handler startupHandler = new Handler(Looper.getMainLooper());
-    private volatile String startupApkUrl = SITE + "/orbit-connect-v7.apk";
+    private volatile String startupApkUrl = SITE + "/orbit-connect-v8.apk";
     private volatile boolean recoveryVisible = false;
     private volatile boolean mainPageLoaded = false;
+    private int mainFrameRetries = 0;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PhoneContactsPlugin.class);
         super.onCreate(savedInstanceState);
+        if (bridge != null) bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    int code = error.getErrorCode();
+                    String failedUrl = request.getUrl() == null ? "" : request.getUrl().toString();
+                    if (mainFrameRetries++ == 0) {
+                        view.clearCache(true);
+                        startupHandler.postDelayed(() -> view.loadUrl(SITE + "/?native_retry=" + System.currentTimeMillis()), 700);
+                    } else {
+                        showNativeNetworkError(view, code, String.valueOf(error.getDescription()), failedUrl);
+                    }
+                    return;
+                }
+                super.onReceivedError(view, request, error);
+            }
+        });
         if (bridge != null) bridge.addWebViewListener(new WebViewListener() {
             @Override public void onReceivedError(WebView webView) {
                 // This callback also fires for failed images and API requests.
@@ -40,6 +61,19 @@ public class MainActivity extends BridgeActivity {
         });
         checkStartupUpdate();
         startupHandler.postDelayed(this::verifyWebAppReady, 30000);
+    }
+
+    private void showNativeNetworkError(WebView webView, int code, String description, String failedUrl) {
+        String safeDescription = TextUtils.htmlEncode(description == null ? "Неизвестная ошибка" : description);
+        String safeUrl = TextUtils.htmlEncode(failedUrl == null ? "" : failedUrl);
+        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
+            "<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b08;color:#f4f1e8;font-family:sans-serif;padding:24px;box-sizing:border-box}" +
+            "main{max-width:520px}i{display:block;width:58px;height:58px;border:3px solid #cfff3c;border-radius:50%;box-shadow:0 0 32px #cfff3c55}" +
+            "h1{font:700 42px Georgia,serif;margin:24px 0 12px}p{color:#a6ae9f;line-height:1.5;word-break:break-word}.code{color:#cfff3c;font-weight:800}" +
+            "button{width:100%;border:0;border-radius:28px;padding:17px;background:#cfff3c;color:#07100b;font-weight:900;font-size:16px;margin-top:20px}</style></head>" +
+            "<body><main><i></i><h1>Не удалось открыть Orbit</h1><p>Android сообщил: <span class='code'>" + safeDescription + " (код " + code + ")</span></p>" +
+            "<p>Адрес: " + safeUrl + "</p><button onclick=\"location.href='" + SITE + "/?manual_retry='+Date.now()\">Повторить подключение</button></main></body></html>";
+        webView.loadDataWithBaseURL(SITE, html, "text/html", "UTF-8", null);
     }
 
     private void checkStartupUpdate() {

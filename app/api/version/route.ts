@@ -1,6 +1,6 @@
 const release={
- build:"2026.08.22.8",
- releasedAt:"2026-08-22T22:12:00+03:00",
+ build:"2026.08.22.9",
+ releasedAt:"2026-08-22T22:22:00+03:00",
  checkIntervalMs:8*60*60*1000,
  title:"Обновление Orbit Connect",
  notes:[
@@ -33,8 +33,9 @@ const release={
   ,"Исправлено ложное появление экрана ошибки в Android при медленной авторизации или сбое отдельного ресурса"
   ,"Основной экран теперь получает до 30 секунд на загрузку, а повтор очищает повреждённый кэш WebView"
   ,"Устранён цикл перезагрузки Android WebView при единичной ошибке авторизации фонового запроса"
+  ,"Android теперь перехватывает системную страницу WebView, повторяет подключение и показывает точный код сетевого сбоя"
  ],
- apk:{version:"1.2.3",url:"/orbit-connect-v7.apk",sha256:"03E180DBF64F066257E1A706A9E799B1327E81A04C8A80EF0DBDCB3206D6932C"}
+ apk:{version:"1.2.4",url:"/orbit-connect-v8.apk",sha256:"20D951A84248246743D4FC0DFFFD0DDBA0CE4D35CDC289495FB54C98684CC255"}
 };
 
 export async function GET(request:Request){
