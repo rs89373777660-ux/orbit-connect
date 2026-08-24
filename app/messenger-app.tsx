@@ -36,7 +36,7 @@ function normalizePhone(value:string){const digits=value.replace(/\D/g,"");if(di
 async function phoneHash(value:string){const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(normalizePhone(value)));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function compareVersions(left:string,right:string){const a=left.split(".").map(Number),b=right.split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const delta=(a[i]||0)-(b[i]||0);if(delta)return delta}return 0}
 function isNativeApp(){const capacitor=(window as typeof window&{Capacitor?:{isNativePlatform?:()=>boolean;getPlatform?:()=>string}}).Capacitor;return Boolean(capacitor?.isNativePlatform?.()||capacitor?.getPlatform?.()==="android"||capacitor?.getPlatform?.()==="ios")}
-function OrbitIcon({name,className=""}:{name:string;className?:string}){return <svg className={`orbit-glyph ${className}`} aria-hidden="true" focusable="false"><use href={`/orbit-ui-icons.svg?v=31#${name}`}/></svg>}
+function OrbitIcon({name,className=""}:{name:string;className?:string}){return <svg className={`orbit-glyph ${className}`} aria-hidden="true" focusable="false"><use href={`/orbit-ui-icons.svg?v=34#${name}`}/></svg>}
 function messagesEqual(left:Message[]|undefined,right:Message[]){return Boolean(left&&left.length===right.length&&right.every((message,index)=>{const old=left[index];return old.id===message.id&&old.body===message.body&&old.editedAt===message.editedAt&&old.deletedAt===message.deletedAt&&old.deliveryStatus===message.deliveryStatus&&old.fileName===message.fileName&&old.fileSize===message.fileSize&&old.replyTo===message.replyTo}))}
 const AVATAR_PRESETS=["🪐","🚀","🌙","⚡","🌿","🎧","☄️","✦","🦊","🐼","😎","🤖"];
 const THEMES=[{id:"lime",name:"Лайм",color:"#cfff3c"},{id:"cyan",name:"Космос",color:"#4eeaff"},{id:"violet",name:"Фиолет",color:"#b08cff"},{id:"coral",name:"Коралл",color:"#ff8075"},{id:"amber",name:"Янтарь",color:"#ffc94a"},{id:"ice",name:"Лёд",color:"#d8f4ff"}];
@@ -55,7 +55,7 @@ export default function MessengerApp(){
  const [galleryOpen,setGalleryOpen]=useState(false),[galleryItems,setGalleryItems]=useState<Array<{id:string;kind:string;fileName?:string;url:string}>>([]),[avatarEditor,setAvatarEditor]=useState<AvatarEditState|null>(null),[avatarGallery,setAvatarGallery]=useState<Array<{id:string;url:string;label:string}>>([]);
  const [privacyOpen,setPrivacyOpen]=useState(false),[notificationSettingsOpen,setNotificationSettingsOpen]=useState(false),[devicesOpen,setDevicesOpen]=useState(false),[browserPairing,setBrowserPairing]=useState(false),[toast,setToast]=useState(""),[syncing,setSyncing]=useState(false),[aiWorking,setAiWorking]=useState(false);
  const [notificationsEnabled,setNotificationsEnabled]=useState(true),[soundEnabled,setSoundEnabled]=useState(true),[updateInfo,setUpdateInfo]=useState<UpdateInfo|null>(null),[checkingUpdate,setCheckingUpdate]=useState(false);
- const [connectionOnline,setConnectionOnline]=useState(()=>typeof navigator==="undefined"?true:navigator.onLine);
+ const [connectionOnline,setConnectionOnline]=useState(()=>typeof navigator==="undefined"?true:navigator.onLine),[nativeShell,setNativeShell]=useState(false);
  const avatarInput=useRef<HTMLInputElement>(null),fileInput=useRef<HTMLInputElement>(null),photoInput=useRef<HTMLInputElement>(null),messageScrollRef=useRef<HTMLDivElement|null>(null),scrollRequest=useRef<"auto"|"smooth"|null>(null),plumAudio=useRef<HTMLAudioElement|null>(null),seenNotifications=useRef(new Set<string>()),readQueue=useRef(new Set<string>()),readFlushTimer=useRef<number|undefined>(undefined);
  const activeChatIdRef=useRef<string|null>(null),messageCache=useRef(new Map<string,Message[]>()),messageLoadToken=useRef(0),chatsLoading=useRef(false),chatsRef=useRef<Chat[]>([]),pendingOpenChatId=useRef<string|null>(null);
  const pinRequests=useRef(new Set<string>());
@@ -63,7 +63,7 @@ export default function MessengerApp(){
  const [theme,setTheme]=useState(()=>typeof window!=="undefined"?localStorage.getItem("orbit_theme")||"lime":"lime");
  const notify=(text:string)=>{setToast(text);window.setTimeout(()=>setToast(""),2500)};
 
- useEffect(()=>{void boot()},[]);
+ useEffect(()=>{setNativeShell(isNativeApp());void boot()},[]);
  useEffect(()=>{
   setNotificationsEnabled(localStorage.getItem("orbit_notifications")!=="off");
   setSoundEnabled(localStorage.getItem("orbit_sound")!=="off");
@@ -72,6 +72,23 @@ export default function MessengerApp(){
   document.addEventListener("pointerdown",unlock,{once:true});
   return()=>document.removeEventListener("pointerdown",unlock);
  },[]);
+ useEffect(()=>{
+  if(!aiMenuOpen&&!emojiOpen&&!attachmentOpen)return;
+  const closePopovers=()=>{setAiMenuOpen(false);setEmojiOpen(false);setAttachmentOpen(false)};
+  const outside=(event:PointerEvent)=>{
+   const target=event.target instanceof Element?event.target:null;if(!target)return;
+   if(target.closest(".attachment-menu"))return;
+   if(target.closest('[aria-label="Прикрепить"]')){setAiMenuOpen(false);setEmojiOpen(false);return}
+   if(target.closest(".ai-menu"))return;
+   if(target.closest('[aria-label="ИИ-помощник"]')){setEmojiOpen(false);setAttachmentOpen(false);return}
+   if(target.closest(".emoji-picker"))return;
+   if(target.closest('[aria-label="Эмодзи и стикеры"]')){setAiMenuOpen(false);setAttachmentOpen(false);return}
+   closePopovers();
+  };
+  const escape=(event:KeyboardEvent)=>{if(event.key==="Escape")closePopovers()};
+  document.addEventListener("pointerdown",outside,true);document.addEventListener("keydown",escape);
+  return()=>{document.removeEventListener("pointerdown",outside,true);document.removeEventListener("keydown",escape)};
+ },[aiMenuOpen,emojiOpen,attachmentOpen]);
  useEffect(()=>{
   const viewport=window.visualViewport;
   const resize=()=>document.documentElement.style.setProperty("--orbit-vh",`${viewport?.height||window.innerHeight}px`);
@@ -328,7 +345,7 @@ export default function MessengerApp(){
  async function ai(mode:"generate"|"correct"|"emoji"){
   setProgress("ИИ ПОМОГАЕТ…");const result=await requestAi(mode,draft);if(result!==null)setDraft(result);else notify("ИИ временно недоступен");setAiMenuOpen(false);setProgress("");
  }
- async function messageAction(action:"edit"|"copy"|"share"|"forward"|"delete",message:Message){
+ async function messageAction(action:"edit"|"copy"|"share"|"forward"|"favorite"|"delete",message:Message){
   setMessageMenu(null);
   if(action==="edit"){setEditingMessage(message);setDraft(message.body||"");return}
   if(action==="copy"){await navigator.clipboard.writeText(message.body||"");notify("Сообщение скопировано");return}
@@ -337,6 +354,13 @@ export default function MessengerApp(){
    const shareData:ShareData={title:"Orbit Connect",text};
    if((message.kind==="photo"||message.kind==="file")&&message.fileName){try{const response=await appFetch(`/api/files?id=${encodeURIComponent(message.id)}`,{cache:"no-store"});if(response.ok){const blob=await response.blob(),file=new File([blob],message.fileName,{type:message.fileMime||blob.type||"application/octet-stream"});if(navigator.canShare?.({files:[file]}))shareData.files=[file]}}catch{}}
    if(navigator.share)await navigator.share(shareData).catch(error=>{if(!(error instanceof DOMException&&error.name==="AbortError"))notify("Не удалось открыть системное меню")});else{await navigator.clipboard.writeText(text);notify("Текст скопирован для отправки")}
+   return;
+  }
+  if(action==="favorite"){
+   const favorite=chats.find(chat=>chat.kind==="direct"&&chat.systemPinned);
+   if(!favorite){notify("Чат «Избранное» не найден");return}
+   const r=await appFetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"forward",messageId:message.id,targetChatId:favorite.id})});
+   notify(r.ok?"Сообщение отправлено в Избранное":"Не удалось отправить в Избранное");
    return;
   }
   if(action==="forward"){setForwardMessages([message]);return}
@@ -418,7 +442,7 @@ export default function MessengerApp(){
   </section>
   <section className={mobileChatOpen?"orbit-chat mobile-open":"orbit-chat"}>
    {activeChat?<>
-    {selectionMode?<div className="message-selection-bar"><button className="selection-close" aria-label="Отменить выбор" onClick={clearMessageSelection}>×</button><b className="selection-count">{selectedMessageIds.size}</b><span>выбрано</span><div><button onClick={()=>void copySelected()}><OrbitIcon name="copy"/><small>Копировать</small></button><button onClick={forwardSelected}><OrbitIcon name="forward"/><small>Переслать</small></button><button onClick={()=>setBatchDeleteOpen(true)}><OrbitIcon name="delete"/><small>Удалить</small></button><button onClick={()=>void favoriteSelected()}><OrbitIcon name="favorite"/><small>В избранное</small></button></div></div>:<header><button className="mobile-chat-back" aria-label="Назад" onClick={()=>setMobileChatOpen(false)}><OrbitIcon name="back"/></button><Avatar name={activeChat.name} url={activeChat.avatarUrl} preset={activeChat.avatarPreset}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="direct"?(activeChat.online?"● в сети":activeChat.lastSeenAt?`не в сети · ${new Date(activeChat.lastSeenAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}`:"не в сети"):activeChat.kind==="channel"?"официальный канал":"группа"}</small></div><button aria-label="Аудиозвонок" onClick={()=>notify("Аудиозвонок запускается")}><OrbitIcon name="phone"/></button><button aria-label="Видеозвонок" onClick={()=>notify("Видеозвонок запускается")}><OrbitIcon name="video"/></button></header>}
+    {selectionMode?<div className="message-selection-bar"><button className="selection-close" aria-label="Отменить выбор" onClick={clearMessageSelection}>×</button><b className="selection-count">{selectedMessageIds.size}</b><span>выбрано</span><div><button onClick={()=>void copySelected()}><OrbitIcon name="copy"/><small>Копировать</small></button><button onClick={forwardSelected}><OrbitIcon name="forward"/><small>Переслать</small></button><button onClick={()=>setBatchDeleteOpen(true)}><OrbitIcon name="delete"/><small>Удалить</small></button><button onClick={()=>void favoriteSelected()}><OrbitIcon name="favorite"/><small>В избранное</small></button></div></div>:<header>{!nativeShell&&<button className="mobile-chat-back" aria-label="Назад" onClick={()=>setMobileChatOpen(false)}><OrbitIcon name="back"/></button>}<Avatar name={activeChat.name} url={activeChat.avatarUrl} preset={activeChat.avatarPreset}/><div><b>{activeChat.name}</b><small>{activeChat.kind==="direct"?(activeChat.online?"● в сети":activeChat.lastSeenAt?`не в сети · ${new Date(activeChat.lastSeenAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"})}`:"не в сети"):activeChat.kind==="channel"?"официальный канал":"группа"}</small></div><button aria-label="Аудиозвонок" onClick={()=>notify("Аудиозвонок запускается")}><OrbitIcon name="phone"/></button><button aria-label="Видеозвонок" onClick={()=>notify("Видеозвонок запускается")}><OrbitIcon name="video"/></button></header>}
     <div ref={messageScrollRef} className={`message-scroll${selectionMode?" selecting":""}`}>{messages.map(message=><MessageBubble key={message.id} message={message} mine={message.senderId===profile?.id} currentUserId={profile?.id||""} reply={message.replyTo?messageById.get(message.replyTo):undefined} selectionMode={selectionMode} selected={selectedMessageIds.has(message.id)} menu={()=>setMessageMenu(message)} select={()=>selectMessage(message)} toggle={()=>toggleMessage(message)} answer={()=>setReplyingTo(message)} share={()=>void messageAction("share",message)} retry={()=>void retryMessage(message)} seen={()=>markMessageSeen(message.id)} structured={(action,index)=>void structuredAction(message,action,index)}/>)}</div>
     {editingMessage&&<div className="editing-bar"><span><b>Редактирование</b><small>{editingMessage.body}</small></span><button onClick={()=>{setEditingMessage(null);setDraft("")}}>×</button></div>}
     {replyingTo&&<div className="editing-bar"><span><b>Ответ на сообщение</b><small>{replyingTo.body||replyingTo.fileName}</small></span><button onClick={()=>setReplyingTo(null)}>×</button></div>}
@@ -526,10 +550,11 @@ function MessageBubble({message,mine,currentUserId,reply,selectionMode,selected,
  function move(event:React.PointerEvent<HTMLDivElement>){if(!dragging||longPressed.current)return;const dx=event.clientX-start.current.x,dy=event.clientY-start.current.y;if(Math.abs(dx)>8){moved.current=true;suppressClick.current=true;if(timer.current)window.clearTimeout(timer.current)}if(Math.abs(dx)>Math.abs(dy)){event.preventDefault();setDragX(Math.max(-108,Math.min(108,dx)))} }
  function up(event:React.PointerEvent<HTMLDivElement>){if(timer.current)window.clearTimeout(timer.current);const dx=event.clientX-start.current.x,dy=Math.abs(event.clientY-start.current.y);setDragging(false);setDragX(0);if(longPressed.current)return;if(selectionMode){suppressClick.current=true;toggle();return}if(dy<58&&dx>74){suppressClick.current=true;answer();navigator.vibrate?.(18);return}if(dy<58&&dx<-74){suppressClick.current=true;share();navigator.vibrate?.(18);return}}
  function cancel(){if(timer.current)window.clearTimeout(timer.current);setDragging(false);setDragX(0)}
+ function openMenu(){const rect=bubbleRef.current?.getBoundingClientRect();if(rect){const width=Math.min(360,window.innerWidth-24),left=mine?Math.max(12,rect.right-width):Math.min(window.innerWidth-width-12,Math.max(12,rect.left)),below=window.innerHeight-rect.bottom>=330;document.documentElement.style.setProperty("--message-menu-left",`${left}px`);document.documentElement.style.setProperty("--message-menu-top",below?`${rect.bottom+8}px`:"auto");document.documentElement.style.setProperty("--message-menu-bottom",below?"auto":`${window.innerHeight-rect.top+8}px`)}menu()}
  const cueOpacity=Math.min(1,Math.abs(dragX)/70);
  return <div className={`message-choice-row${mine?" mine":""}${selected?" selected":""}`}>
   {selectionMode&&<button className={`message-select-check${selected?" checked":""}`} aria-label={selected?"Убрать сообщение из выбранных":"Выбрать сообщение"} onClick={toggle}>{selected?"✓":""}</button>}
-  <div className="message-swipe-shell"><span className="swipe-cue reply-cue" style={{opacity:dragX>0?cueOpacity:0}}>↩ <small>Ответить</small></span><span className="swipe-cue share-cue" style={{opacity:dragX<0?cueOpacity:0}}><small>Поделиться</small> ↗</span><div ref={bubbleRef} className={`${mine?"msg me":"msg"}${message.deletedAt?" deleted":""}${message.failed?" failed":""}${dragging?" dragging":""}`} style={{transform:`translate3d(${dragX}px,0,0)`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} onClick={event=>{if((event.target as HTMLElement).closest("button,a"))return;if(!suppressClick.current&&!selectionMode)menu();suppressClick.current=false}} onContextMenu={event=>{event.preventDefault();select()}}>
+  <div className="message-swipe-shell"><span className="swipe-cue reply-cue" style={{opacity:dragX>0?cueOpacity:0}}>↩ <small>Ответить</small></span><span className="swipe-cue share-cue" style={{opacity:dragX<0?cueOpacity:0}}><small>Поделиться</small> ↗</span><div ref={bubbleRef} className={`${mine?"msg me":"msg"}${message.deletedAt?" deleted":""}${message.failed?" failed":""}${dragging?" dragging":""}`} style={{transform:`translate3d(${dragX}px,0,0)`}} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel} onClick={event=>{if((event.target as HTMLElement).closest("button,a"))return;if(!suppressClick.current&&!selectionMode)openMenu();suppressClick.current=false}} onContextMenu={event=>{event.preventDefault();select()}}>
   {message.forwardedFromId&&<small className="forwarded-label">↗ Пересланное сообщение</small>}
   {reply&&<div className="reply-preview"><b>Ответ</b><span>{reply.body||reply.fileName}</span></div>}
   {message.deletedAt?<p className="deleted-copy">Сообщение удалено</p>:message.kind==="photo"||message.kind==="file"?<SecureAttachment message={message}/>:message.kind==="location"||message.kind==="poll"||message.kind==="checklist"||message.kind==="contact"?<StructuredMessage message={message} currentUserId={currentUserId} act={structured}/>:message.kind==="sticker"?<img className="orbit-sticker" src={message.body||""} alt="Стикер"/>:<p>{message.body}</p>}
@@ -595,8 +620,8 @@ function ProfileModal({profile,close,addContact,openChat}:{profile:Profile;close
  return <div className="modal-back"><div className="profile-modal"><button className="modal-close" onClick={close}>×</button><Avatar name={profile.name} url={profile.avatarUrl} preset={profile.avatarPreset}/><h2>{profile.name}</h2><b>{profile.handle}</b><small>ID: {profile.publicId}</small>{profile.status&&<p className="profile-status">{profile.status}</p>}<dl>{profile.phone&&<><dt>Телефон</dt><dd>{profile.phone}</dd></>}{profile.email&&<><dt>Email</dt><dd>{profile.email}</dd></>}{Object.entries(profile.socials||{}).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl><div className="profile-actions">{!profile.isContact&&<button onClick={()=>void addContact(profile)}>Добавить контакт</button>}<button className="solid write-icon" aria-label={`Написать ${profile.name}`} title="Написать" onClick={()=>void openChat(profile)}>✎</button></div></div></div>
 }
 
-function MessageActions({message,mine,close,act}:{message:Message;mine:boolean;close:()=>void;act:(action:"edit"|"copy"|"share"|"forward"|"delete")=>void}){
- return <div className="modal-back action-back" onClick={close}><div className="message-actions" onClick={event=>event.stopPropagation()}><header><small>ДЕЙСТВИЯ С СООБЩЕНИЕМ</small><button onClick={close}>×</button></header>{mine&&Boolean(message.body)&&(message.kind==="text"||message.kind==="message")&&<button onClick={()=>act("edit")}><OrbitIcon name="edit"/><span><b>Изменить</b><small>Редактировать текст сообщения</small></span></button>}<button onClick={()=>act("copy")} disabled={!message.body}><OrbitIcon name="copy"/><span><b>Копировать</b><small>Сохранить текст в буфер обмена</small></span></button><button onClick={()=>act("share")}><OrbitIcon name="share"/><span><b>Поделиться</b><small>Отправить через другое приложение</small></span></button><button onClick={()=>act("forward")}><OrbitIcon name="forward"/><span><b>Переслать</b><small>Выбрать другой чат Orbit</small></span></button><button className="danger" onClick={()=>act("delete")}><OrbitIcon name="delete"/><span><b>Удалить</b><small>У себя или у всех участников</small></span></button></div></div>
+function MessageActions({message,mine,close,act}:{message:Message;mine:boolean;close:()=>void;act:(action:"edit"|"copy"|"share"|"forward"|"favorite"|"delete")=>void}){
+ return <div className="modal-back action-back" onClick={close}><div className="message-actions" onClick={event=>event.stopPropagation()}><header><small>ДЕЙСТВИЯ С СООБЩЕНИЕМ</small><button onClick={close}>×</button></header>{mine&&Boolean(message.body)&&(message.kind==="text"||message.kind==="message")&&<button onClick={()=>act("edit")}><OrbitIcon name="edit"/><span><b>Изменить</b><small>Редактировать текст сообщения</small></span></button>}<button onClick={()=>act("copy")} disabled={!message.body}><OrbitIcon name="copy"/><span><b>Копировать</b><small>Сохранить текст в буфер обмена</small></span></button><button onClick={()=>act("share")}><OrbitIcon name="share"/><span><b>Поделиться</b><small>Отправить через другое приложение</small></span></button><button onClick={()=>act("forward")}><OrbitIcon name="forward"/><span><b>Переслать</b><small>Выбрать другой чат Orbit</small></span></button><button onClick={()=>act("favorite")}><OrbitIcon name="favorite"/><span><b>В избранное</b><small>Сохранить сообщение в личном чате</small></span></button><button className="danger" onClick={()=>act("delete")}><OrbitIcon name="delete"/><span><b>Удалить</b><small>У себя или у всех участников</small></span></button></div></div>
 }
 
 function ForwardMessage({chats,count,close,forward}:{chats:Chat[];count:number;close:()=>void;forward:(chatId:string)=>void}){

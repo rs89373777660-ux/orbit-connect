@@ -4,8 +4,8 @@
 <symbol id="settings" viewBox="0 0 48 48"><path d="M20 5h8l1.2 5.1 4.5 2.6 5-1.5 4 6.9-3.8 3.6v5.2l3.8 3.6-4 6.9-5-1.5-4.5 2.6L28 43h-8l-1.2-5.1-4.5-2.6-5 1.5-4-6.9 3.8-3.6v-5.2l-3.8-3.6 4-6.9 5 1.5 4.5-2.6z"/><circle cx="24" cy="24" r="6"/></symbol>
 <symbol id="compose" viewBox="0 0 48 48"><path d="M9 38l3-11L34 5l9 9-22 22zM12 27l9 9M30 9l9 9M8 41h32"/></symbol>
 <symbol id="search" viewBox="0 0 48 48"><circle cx="21" cy="21" r="13"/><path d="M31 31l11 11M16 21h10"/></symbol>
-<symbol id="pin" viewBox="0 0 48 48"><path d="M18 6h12l-2 11 7 7v4H13v-4l7-7zM24 28v15"/><circle cx="24" cy="43" r="1.5"/></symbol>
-<symbol id="pin-open" viewBox="0 0 48 48"><path d="M14 9l8-3 2 11 8 4 1 4-21 8-1-4 4-9zM22 29l6 14"/><circle cx="28" cy="43" r="1.5"/></symbol>
+<symbol id="pin" viewBox="0 0 48 48"><path d="M16 6h16l-2.5 12 6.5 7v4H12v-4l6.5-7zM24 29v14"/><path d="M20 11h8"/><circle cx="24" cy="43" r="1.6" fill="currentColor" stroke="none"/></symbol>
+<symbol id="pin-open" viewBox="0 0 48 48"><g transform="rotate(-38 24 24)"><path d="M16 6h16l-2.5 12 6.5 7v4H12v-4l6.5-7zM24 29v14"/><path d="M20 11h8"/><circle cx="24" cy="43" r="1.6" fill="currentColor" stroke="none"/></g></symbol>
 <symbol id="back" viewBox="0 0 48 48"><path d="M27 8L11 24l16 16M12 24h26"/></symbol>
 <symbol id="send" viewBox="0 0 48 48"><path d="M7 22L42 6 28 42l-6-14zM22 28L42 6"/></symbol>
 <symbol id="attach" viewBox="0 0 48 48"><path d="M17 25l12-12a7 7 0 0110 10L22 40A11 11 0 017 25L24 8M14 28l14-14a3 3 0 014 4L18 32"/></symbol>
