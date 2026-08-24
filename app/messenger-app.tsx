@@ -238,7 +238,7 @@ export default function MessengerApp(){
   catch{notify("Не удалось включить звук. Проверьте громкость мультимедиа")}
  }
  async function shareApp(){
-  let apkPath="/orbit-connect-v8.apk";try{const response=await fetch(`/api/version?t=${Date.now()}`,{cache:"no-store"});if(response.ok)apkPath=(await response.json()).apk?.url||apkPath}catch{}
+  let apkPath="/orbit-connect-v9.apk";try{const response=await fetch(`/api/version?t=${Date.now()}`,{cache:"no-store"});if(response.ok)apkPath=(await response.json()).apk?.url||apkPath}catch{}
   const data={title:"Orbit Connect для Android",text:"Скачайте актуальную версию Orbit Connect для Android — мессенджера для общения, файлов и звонков.",url:new URL(apkPath,location.origin).href};
   if(navigator.share){try{await navigator.share(data);return}catch(error){if(error instanceof DOMException&&error.name==="AbortError")return}}
   await navigator.clipboard.writeText(`${data.text}\n${data.url}`);notify("Ссылка на приложение скопирована");

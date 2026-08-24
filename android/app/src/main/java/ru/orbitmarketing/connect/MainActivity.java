@@ -24,7 +24,7 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final String SITE = "https://tvoy-krug-messenger.rs89373777660.chatgpt.site";
     private final Handler startupHandler = new Handler(Looper.getMainLooper());
-    private volatile String startupApkUrl = SITE + "/orbit-connect-v8.apk";
+    private volatile String startupApkUrl = SITE + "/orbit-connect-v9.apk";
     private volatile boolean recoveryVisible = false;
     private volatile boolean mainPageLoaded = false;
     private int mainFrameRetries = 0;

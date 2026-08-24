@@ -35,7 +35,7 @@ const release={
   ,"Устранён цикл перезагрузки Android WebView при единичной ошибке авторизации фонового запроса"
   ,"Android теперь перехватывает системную страницу WebView, повторяет подключение и показывает точный код сетевого сбоя"
  ],
- apk:{version:"1.2.4",url:"/orbit-connect-v8.apk",sha256:"20D951A84248246743D4FC0DFFFD0DDBA0CE4D35CDC289495FB54C98684CC255"}
+ apk:{version:"1.2.5",url:"/orbit-connect-v9.apk",sha256:"50C0DB3FF6486E54D9E344002F2BC32FD1B3FF8C2B93586707FA395BC9A834FD"}
 };
 
 export async function GET(request:Request){
