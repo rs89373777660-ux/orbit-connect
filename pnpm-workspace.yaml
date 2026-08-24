@@ -1,9 +1,4 @@
 packages:
   - '.'
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - esbuild
-  - fsevents
-  - sharp
-  - workerd
+dangerouslyAllowAllBuilds: true
