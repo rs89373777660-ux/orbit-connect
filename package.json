@@ -47,5 +47,14 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
-  "type": "module"
+  "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "esbuild",
+      "fsevents",
+      "sharp",
+      "workerd"
+    ]
+  }
 }
