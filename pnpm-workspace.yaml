@@ -1,4 +1,6 @@
 onlyBuiltDependencies:
+  - '@swc/core'
   - esbuild
+  - fsevents
   - sharp
   - workerd
