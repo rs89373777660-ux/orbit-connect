@@ -78,13 +78,13 @@ export async function POST(request:Request){
    const target=p.targetUserId||"";const [person]=await db.select().from(users).where(and(eq(users.id,target),eq(users.registrationCompleted,true))).limit(1);
    if(!person)return Response.json({error:"Пользователь не найден"},{status:404});
    const mine=await db.select({chatId:chatMembers.chatId}).from(chatMembers).where(eq(chatMembers.userId,me.userId)),theirs=await db.select({chatId:chatMembers.chatId}).from(chatMembers).where(eq(chatMembers.userId,target)),theirIds=new Set(theirs.map(x=>x.chatId));
-   for(const row of mine){if(!theirIds.has(row.chatId))continue;const [room]=await db.select().from(chats).where(and(eq(chats.id,row.chatId),eq(chats.kind,"direct"))).limit(1);if(room){const members=await db.select().from(chatMembers).where(eq(chatMembers.chatId,row.chatId));if(members.length===2)return Response.json({chat:{...room,title:person.name}})}}
+   for(const row of mine){if(!theirIds.has(row.chatId))continue;const [room]=await db.select().from(chats).where(and(eq(chats.id,row.chatId),eq(chats.kind,"direct"))).limit(1);if(room){const members=await db.select().from(chatMembers).where(eq(chatMembers.chatId,row.chatId));if(members.length===2)return Response.json({chat:{...room,title:person.name},created:false})}}
    const id=crypto.randomUUID(),now=Date.now();await db.batch([
     db.insert(chats).values({id,title:person.name,kind:"direct",createdBy:me.userId,createdAt:now}),
     db.insert(chatMembers).values({chatId:id,userId:me.userId,role:"owner",joinedAt:now}),
     db.insert(chatMembers).values({chatId:id,userId:target,role:"member",joinedAt:now}),
     db.insert(contacts).values({ownerId:me.userId,contactUserId:target,createdAt:now}).onConflictDoNothing()
-   ]);return Response.json({chat:{id,title:person.name,kind:"direct",createdAt:now}},{status:201});
+   ]);return Response.json({chat:{id,title:person.name,kind:"direct",createdAt:now},created:true},{status:201});
   }
   if(p.action==="read-notifications"){await db.update(notifications).set({readAt:Date.now()}).where(and(eq(notifications.userId,me.userId),isNull(notifications.readAt)));return Response.json({ok:true})}
   return Response.json({error:"Неизвестное действие"},{status:400});

@@ -11,6 +11,7 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import androidx.core.content.FileProvider;
+import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
@@ -24,7 +25,7 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
     private static final String SITE = "https://tvoy-krug-messenger.rs89373777660.chatgpt.site";
     private final Handler startupHandler = new Handler(Looper.getMainLooper());
-    private volatile String startupApkUrl = SITE + "/orbit-connect-v9.apk";
+    private volatile String startupApkUrl = SITE + "/orbit-connect-v10.apk";
     private volatile boolean recoveryVisible = false;
     private volatile boolean mainPageLoaded = false;
     private int mainFrameRetries = 0;
@@ -33,6 +34,19 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PhoneContactsPlugin.class);
         super.onCreate(savedInstanceState);
+        if (bridge != null) {
+            WebView nativeWebView = bridge.getWebView();
+            String userAgent = nativeWebView.getSettings().getUserAgentString();
+            if (userAgent == null) userAgent = "";
+            if (!userAgent.contains("OrbitConnectNative")) {
+                nativeWebView.getSettings().setUserAgentString(userAgent + " OrbitConnectNative/Android");
+            }
+        }
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                handleOrbitBack();
+            }
+        });
         if (bridge != null) bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
@@ -168,8 +182,18 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onBackPressed() {
+        handleOrbitBack();
+    }
+
+    private void handleOrbitBack() {
         WebView webView = bridge == null ? null : bridge.getWebView();
-        if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('orbit:back'))", null);
-        else super.onBackPressed();
+        if (webView == null) {
+            moveTaskToBack(true);
+            return;
+        }
+        webView.evaluateJavascript(
+            "(function(){if(typeof window.orbitHandleBack==='function')return window.orbitHandleBack();window.dispatchEvent(new CustomEvent('orbit:back'));return true})()",
+            handled -> { if (!"true".equals(handled)) moveTaskToBack(true); }
+        );
     }
 }

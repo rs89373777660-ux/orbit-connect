@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSessions, chatMembers, chats, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
+import { release } from "../../release";
 
 async function identity(request:Request){
  const user=await getAppUser(request);if(!user)return null;
@@ -22,7 +23,8 @@ async function identity(request:Request){
 async function member(chatId:string,userId:string){return (await getDb().select().from(chatMembers).where(and(eq(chatMembers.chatId,chatId),eq(chatMembers.userId,userId))).limit(1)).length>0}
 
 const COMMUNITY_ID="orbit-connect-community";
-const RELEASE_ID="orbit-release-2026-08-20-5";
+const RELEASE_ID=`orbit-release-${release.build}`;
+const CURRENT_RELEASE_NOTES=`${release.title}\n\n${release.notes.map(note=>`• ${note}`).join("\n")}\n\nВерсия Android: ${release.apk.version}`;
 const RELEASE_NOTES=`Большое обновление Orbit Connect
 
 🔐 Вход и безопасность
@@ -78,17 +80,19 @@ async function ensureCommunity(userId:string){
  if(!registered)return;
  await db.insert(chats).values({id:COMMUNITY_ID,title:"Orbit Connect · Новости",kind:"channel",createdBy:registered.id,createdAt:now}).onConflictDoNothing();
  await db.insert(chatMembers).values({chatId:COMMUNITY_ID,userId,role:userId===registered.id?"owner":"member",pinnedAt:now,joinedAt:now}).onConflictDoNothing();
- await db.insert(messages).values({id:RELEASE_ID,chatId:COMMUNITY_ID,senderId:registered.id,kind:"system",body:RELEASE_NOTES,createdAt:now}).onConflictDoNothing();
+ await db.insert(messages).values({id:RELEASE_ID,chatId:COMMUNITY_ID,senderId:registered.id,kind:"system",body:CURRENT_RELEASE_NOTES,createdAt:new Date(release.releasedAt).getTime()}).onConflictDoNothing();
  if(userId!==registered.id)await db.insert(messageReceipts).values({messageId:RELEASE_ID,userId,deliveredAt:now}).onConflictDoNothing();
 }
 
 export async function GET(request:Request){
  try{
   const user=await identity(request);if(!user)return Response.json({error:"Требуется вход"},{status:401});
-  const db=getDb(),url=new URL(request.url),chatId=url.searchParams.get("chatId"),after=Number(url.searchParams.get("after")||0);
+  const db=getDb(),url=new URL(request.url),chatId=url.searchParams.get("chatId"),after=Number(url.searchParams.get("after")||0),before=Number(url.searchParams.get("before")||0),limit=Math.max(20,Math.min(100,Number(url.searchParams.get("limit")||50)));
   if(chatId){
    if(!await member(chatId,user.userId))return Response.json({error:"Нет доступа"},{status:403});
-   const allRows=await db.select().from(messages).where(and(eq(messages.chatId,chatId),gt(messages.createdAt,after))).orderBy(asc(messages.createdAt)).limit(200);
+   const condition=after?and(eq(messages.chatId,chatId),gt(messages.createdAt,after)):before?and(eq(messages.chatId,chatId),lt(messages.createdAt,before)):eq(messages.chatId,chatId);
+   const selected=after?await db.select().from(messages).where(condition).orderBy(asc(messages.createdAt)).limit(limit):await db.select().from(messages).where(condition).orderBy(desc(messages.createdAt)).limit(limit);
+   const allRows=after?selected:[...selected].reverse();
    const allIds=allRows.map(item=>item.id);
    const hidden=allIds.length?await db.select({messageId:messageHidden.messageId}).from(messageHidden).where(and(eq(messageHidden.userId,user.userId),inArray(messageHidden.messageId,allIds))):[];
    const hiddenIds=new Set(hidden.map(item=>item.messageId)),rows=allRows.filter(item=>!hiddenIds.has(item.id)),ids=rows.map(item=>item.id);
@@ -101,7 +105,7 @@ export async function GET(request:Request){
     return {...message,body:message.deletedAt?null:message.body,fileName:message.deletedAt?null:message.fileName,deliveryStatus};
    });
    const [room]=await db.select().from(chats).where(eq(chats.id,chatId)).limit(1);
-   return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user,chat:{kind:room?.kind,canPost:room?.kind!=="channel"||room.createdBy===user.userId}});
+   return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user,hasMore:allRows.length===limit,nextBefore:allRows[0]?.createdAt||null,chat:{kind:room?.kind,canPost:room?.kind!=="channel"||room.createdBy===user.userId}});
   }
   const memberships=await db.select().from(chatMembers).where(eq(chatMembers.userId,user.userId));
   const membershipMap=new Map(memberships.map(item=>[item.chatId,item]));
@@ -117,7 +121,7 @@ export async function GET(request:Request){
    if(!other)return {...base,avatarPreset:"⭐",systemPinned:true};
    const [person]=await db.select({id:users.id,name:users.name,avatarData:users.avatarData,avatarPreset:users.avatarPreset,privacyPhoto:users.privacyPhoto}).from(users).where(eq(users.id,other.userId)).limit(1);
    const [session]=await db.select({lastSeenAt:appSessions.lastSeenAt}).from(appSessions).where(eq(appSessions.userId,other.userId)).orderBy(desc(appSessions.lastSeenAt)).limit(1),lastSeenAt=session?.lastSeenAt||null;
-   return person?{...base,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null,lastSeenAt,online:Boolean(lastSeenAt&&lastSeenAt>Date.now()-15_000)}:base;
+   return person?{...base,userId:person.id,title:person.name,avatarPreset:person.avatarPreset,avatarUrl:person.avatarData&&person.privacyPhoto?`/api/avatar?id=${encodeURIComponent(person.id)}`:null,lastSeenAt,online:Boolean(lastSeenAt&&lastSeenAt>Date.now()-15_000)}:base;
   }));
   const chatList=chatListUnsorted.sort((a,b)=>{
    const systemRank=(item:typeof a)=>item.id===COMMUNITY_ID?2:item.systemPinned?1:0,diff=systemRank(b)-systemRank(a);if(diff)return diff;

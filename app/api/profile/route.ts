@@ -1,6 +1,6 @@
 import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { users } from "../../../db/schema";
+import { contacts, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 import { ensureProfileIdentity, normalizeHandle, publicProfile } from "../../profile-utils";
 
@@ -11,7 +11,8 @@ export async function GET(request:Request){
  const id=new URL(request.url).searchParams.get("id")||me.userId;
  const [row]=await db.select().from(users).where(eq(users.id,id)).limit(1);
  if(!row||(!row.registrationCompleted&&id!==me.userId))return Response.json({error:"Пользователь не найден"},{status:404});
- return Response.json({profile:publicProfile(row,id===me.userId)});
+ const own=id===me.userId,isContact=own||Boolean((await db.select({contactUserId:contacts.contactUserId}).from(contacts).where(and(eq(contacts.ownerId,me.userId),eq(contacts.contactUserId,id))).limit(1))[0]);
+ return Response.json({profile:{...publicProfile(row,own),isContact}});
 }
 
 export async function POST(request:Request){
