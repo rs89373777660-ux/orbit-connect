@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMembers, chats, messageHidden, messageReceipts, messages, notifications } from "../../../db/schema";
+import { chatMembers, chats, messageAttachments, messageHidden, messageReceipts, messages, notifications } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 
 async function membership(chatId:string,userId:string){
@@ -91,20 +91,21 @@ export async function POST(request:Request){
   }
   const now=Date.now(),message={
    id:crypto.randomUUID(),chatId,senderId:user.userId,body:text||null,
-   kind:(source?.kind||(requestedKind==="sticker"&&/^\/emoji\/orbit-[1-9]\.webp$/.test(text)?"sticker":requestedKind)) as "text"|"file"|"photo"|"sticker"|"voice"|"system"|"location"|"poll"|"checklist"|"contact",
+   kind:(source?.kind||(requestedKind==="sticker"&&/^\/emoji\/orbit-[1-9]\.webp$/.test(text)?"sticker":requestedKind)) as "text"|"file"|"photo"|"album"|"sticker"|"voice"|"system"|"location"|"poll"|"checklist"|"contact",
    fileKey:source?.fileKey||null,fileName:source?.fileName||null,fileSize:source?.fileSize||null,fileMime:source?.fileMime||null,
    replyTo:action==="forward"?null:(body.replyTo||null),forwardedFromId:source?.id||null,createdAt:now
   };
   const members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,chatId));
-  const recipients=members.filter(item=>item.userId!==user.userId);
+  const recipients=members.filter(item=>item.userId!==user.userId),sourceAttachments=source?.kind==="album"?await db.select().from(messageAttachments).where(eq(messageAttachments.messageId,source.id)):[],forwardedAttachments=sourceAttachments.map(item=>({...item,id:crypto.randomUUID(),messageId:message.id,createdAt:now}));
   await db.batch([
    db.insert(messages).values(message),
+   ...forwardedAttachments.map(item=>db.insert(messageAttachments).values(item)),
    ...recipients.map(recipient=>db.insert(messageReceipts).values({messageId:message.id,userId:recipient.userId,deliveredAt:now})),
    ...recipients.map(recipient=>db.insert(notifications).values({
     id:crypto.randomUUID(),userId:recipient.userId,actorId:user.userId,entityId:chatId,
     kind:message.kind==="file"?"file":"message",body:`${user.displayName}: ${message.kind==="file"?`файл ${message.fileName||""}`:message.kind==="poll"?"опрос":message.kind==="checklist"?"список задач":message.kind==="location"?"геопозиция":message.kind==="contact"?"контакт":(text||"Пересланное сообщение").slice(0,140)}`,createdAt:now
    }))
   ]);
-  return Response.json({message,notified:recipients.length},{status:201});
+  return Response.json({message:{...message,attachments:forwardedAttachments.map(({fileKey,...item})=>item)},notified:recipients.length},{status:201});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"Ошибка сообщения"},{status:500})}
 }

@@ -71,6 +71,13 @@
       "when": 1787418000000,
       "tag": "0009_device_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788123600000,
+      "tag": "0010_message_albums",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSessions, chatMembers, chats, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
+import { appSessions, chatMembers, chats, messageAttachments, messageHidden, messageReceipts, messages, reactions, users } from "../../../db/schema";
 import { getAppUser } from "../../server-auth";
 import { release } from "../../release";
 
@@ -98,11 +98,12 @@ export async function GET(request:Request){
    const hiddenIds=new Set(hidden.map(item=>item.messageId)),rows=allRows.filter(item=>!hiddenIds.has(item.id)),ids=rows.map(item=>item.id);
    const receiptRows=ids.length?await db.select().from(messageReceipts).where(inArray(messageReceipts.messageId,ids)):[];
    const rs=ids.length?await db.select().from(reactions).where(inArray(reactions.messageId,ids)):[];
+   const attachmentRows=ids.length?await db.select({id:messageAttachments.id,messageId:messageAttachments.messageId,fileName:messageAttachments.fileName,fileSize:messageAttachments.fileSize,fileMime:messageAttachments.fileMime,position:messageAttachments.position}).from(messageAttachments).where(inArray(messageAttachments.messageId,ids)).orderBy(asc(messageAttachments.position)):[];
    const members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,chatId));
    const enriched=rows.map(message=>{
     const receipts=receiptRows.filter(item=>item.messageId===message.id),recipientCount=Math.max(0,members.length-1);
     const deliveryStatus=recipientCount===0||receipts.length>=recipientCount&&receipts.every(item=>Boolean(item.readAt))?"read":receipts.length>=recipientCount&&receipts.every(item=>Boolean(item.deliveredAt))?"delivered":"sent";
-    return {...message,body:message.deletedAt?null:message.body,fileName:message.deletedAt?null:message.fileName,deliveryStatus};
+    return {...message,body:message.deletedAt?null:message.body,fileName:message.deletedAt?null:message.fileName,deliveryStatus,attachments:message.deletedAt?[]:attachmentRows.filter(item=>item.messageId===message.id),reactions:rs.filter(item=>item.messageId===message.id)};
    });
    const [room]=await db.select().from(chats).where(eq(chats.id,chatId)).limit(1);
    return Response.json({messages:enriched,reactions:rs,serverTime:Date.now(),user,hasMore:allRows.length===limit,nextBefore:allRows[0]?.createdAt||null,chat:{kind:room?.kind,canPost:room?.kind!=="channel"||room.createdBy===user.userId}});
@@ -156,7 +157,7 @@ export async function POST(request:Request){
    return Response.json({chat:{id,title,kind:"group",createdAt:now}},{status:201});
   }
   if(!p.chatId||!await member(p.chatId,user.userId))return Response.json({error:"Нет доступа к чату"},{status:403});
-  if(p.action==="react"&&p.messageId){await db.insert(reactions).values({messageId:p.messageId,userId:user.userId,emoji:p.emoji||"🔥",createdAt:Date.now()}).onConflictDoNothing();return Response.json({ok:true})}
+  if(p.action==="react"&&p.messageId){const [target]=await db.select({chatId:messages.chatId}).from(messages).where(eq(messages.id,p.messageId)).limit(1);if(!target||target.chatId!==p.chatId)return Response.json({error:"Сообщение не найдено"},{status:404});const emoji=(p.emoji||"🔥").slice(0,16),[existing]=await db.select().from(reactions).where(and(eq(reactions.messageId,p.messageId),eq(reactions.userId,user.userId),eq(reactions.emoji,emoji))).limit(1);if(existing)await db.delete(reactions).where(and(eq(reactions.messageId,p.messageId),eq(reactions.userId,user.userId),eq(reactions.emoji,emoji)));else await db.insert(reactions).values({messageId:p.messageId,userId:user.userId,emoji,createdAt:Date.now()});return Response.json({ok:true,active:!existing})}
   return Response.json({error:"Неизвестное действие"},{status:400});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"Ошибка сервера"},{status:500})}
 }
