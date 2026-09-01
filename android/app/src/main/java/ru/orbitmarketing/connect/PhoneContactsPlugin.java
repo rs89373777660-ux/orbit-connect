@@ -32,6 +32,22 @@ import java.net.URL;
     @Permission(alias = "notifications", strings = {Manifest.permission.POST_NOTIFICATIONS})
 })
 public class PhoneContactsPlugin extends Plugin {
+    @PluginMethod
+    public void shareText(PluginCall call) {
+        String text = call.getString("text", "");
+        String title = call.getString("title", "Orbit Connect");
+        if (text.isEmpty()) {
+            call.reject("Нет текста для отправки");
+            return;
+        }
+        Intent sendIntent = new Intent(Intent.ACTION_SEND);
+        sendIntent.setType("text/plain");
+        sendIntent.putExtra(Intent.EXTRA_TEXT, text);
+        Intent chooser = Intent.createChooser(sendIntent, title);
+        getActivity().startActivity(chooser);
+        call.resolve();
+    }
+
     private JSObject notificationIntent(Intent intent) {
         JSObject result = new JSObject();
         if (intent != null && "orbit.openChat".equals(intent.getAction())) {
