@@ -42,4 +42,5 @@
 <symbol id="plus" viewBox="0 0 48 48"><path d="M24 7v34M7 24h34"/></symbol>
 <symbol id="sound" viewBox="0 0 48 48"><path d="M8 20h9l11-9v26L17 28H8zM34 18c3 3 3 9 0 12M39 13c6 6 6 16 0 22"/><circle cx="40" cy="8" r="2" fill="currentColor"/></symbol>
 <symbol id="external" viewBox="0 0 48 48"><path d="M27 7h14v14M41 7L23 25M37 27v13H8V11h13"/></symbol>
+<symbol id="folder" viewBox="0 0 48 48"><path d="M5 13a5 5 0 015-5h10l5 6h13a5 5 0 015 5v19a5 5 0 01-5 5H10a5 5 0 01-5-5z"/><path d="M6 20h36"/></symbol>
 </defs></svg>

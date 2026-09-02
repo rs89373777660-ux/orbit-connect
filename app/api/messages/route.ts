@@ -29,8 +29,10 @@ export async function POST(request:Request){
      const item=payload.items[body.itemIndex!],checked=item.checkedBy?.includes(user.userId);
      payload.items[body.itemIndex!]={...item,checkedBy:checked?(item.checkedBy||[]).filter(id=>id!==user.userId):[...(item.checkedBy||[]),user.userId]};
     }
-    await db.update(messages).set({body:JSON.stringify(payload)}).where(eq(messages.id,message.id));
-    return Response.json({ok:true});
+    const nextBody=JSON.stringify(payload);await db.update(messages).set({body:nextBody}).where(eq(messages.id,message.id));
+    const members=await db.select({userId:chatMembers.userId}).from(chatMembers).where(eq(chatMembers.chatId,message.chatId)),recipients=members.filter(item=>item.userId!==user.userId),now=Date.now(),label=action==="poll-vote"?"ответил(а) в опросе":"изменил(а) пункт списка";
+    for(const recipient of recipients)await db.insert(notifications).values({id:crypto.randomUUID(),userId:recipient.userId,actorId:user.userId,entityId:message.chatId,kind:action==="poll-vote"?"poll":"checklist",body:`${user.displayName} ${label}`,createdAt:now});
+    return Response.json({ok:true,body:nextBody});
    }catch{return Response.json({error:"Данные сообщения повреждены"},{status:400})}
   }
 
